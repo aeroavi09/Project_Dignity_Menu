@@ -12,20 +12,35 @@ npm run build     # outputs to dist/
 
 ## Architecture
 
+- `main.js` — wiring + the fixed-timestep loop. Owns `spawnItem()`/`despawnItem()` and a **slot registry** (one entry per shelf position, holding the item currently in it). Items are created and destroyed mid-game, so anything that caches an item list must tolerate that — push/splice the shared `pickables`/`pairs`/`trackedItems` arrays rather than rebuilding them.
 - `layout.js` — pure data (shelf/table/room dimensions, item templates). No dependencies; shared by physics and rendering.
 - `physics.js` — cannon-es world setup, static colliders, `createItemBody()`. Items use `linearFactor: (1,1,0)` / `angularFactor: (0,0,1)` — **every pickable item is locked to one Z-depth plane** so nothing can roll out of a bag's reach. Preserve this on any new item type.
 - `scene.js` — Three.js renderer/camera/lighting, static meshes, per-item-kind mesh builders.
 - `drag.js` — the core pickup mechanic: a cannon-es Spring between the held body and a cursor-following anchor. Tuned via `STIFFNESS_PER_KG`/`DAMPING_PER_KG` — don't retune without a reason, other systems (bag handle, tag) mirror this tuning intentionally for a consistent feel.
-- `interaction.js` — raycast pickup/hover. Supports two paths: a plain mesh with `userData.body` uses the standard spring drag; a mesh with `userData.onGrab` hands control to a custom controller (used by soft bags and the tag/bag generators). If `onGrab` returns nothing, no drag starts — that's how generators intercept a click as "open a UI" instead of "pick me up."
-- `softBodyBag.js` / `bags.js` — plastic bags: a ~9-particle mass-spring "soft body" while carried, snapping into a single static rigid body when dropped on the table. `bags.js` tracks per-bag contents/completeness and the checkmark.
-- `softRag.js` — washrags as a floppy particle chain (same idea, simpler).
+- `interaction.js` — raycast pickup/hover. Supports two paths: a plain mesh with `userData.body` uses the standard spring drag; a mesh with `userData.onGrab` hands control to a custom controller (used by soft bags and the tag/bag generators). If `onGrab` returns nothing, no drag starts — that's how generators intercept a click as "open a UI" instead of "pick me up." A third flag, `userData.locked`, blocks grabbing entirely while leaving the mesh hoverable, so bagged items keep their name label.
+- `softBodyBag.js` / `bags.js` — plastic bags: a ~9-particle mass-spring "soft body" while carried, snapping into a single static rigid body when dropped on the table. `bags.js` tracks per-bag contents/completeness and the checkmark, and owns the seal/lock rules below.
+- `softRag.js` — washrags as a floppy particle chain (same idea, simpler). Exposes `reset`/`push`/`lock`/`dispose` so the restock button can treat a six-particle rag like any other single-body item.
+- `restock.js` — the bottom-left Restock button: returns loose items to their slots, spawns replacements for bagged ones, and cleans up orphans.
 - `tagGenerator.js` / `tagPopup.js` / `tags.js` — gift tag mechanic: click the generator to open a draw/text popup, finished tag becomes a normal pickable, snaps onto a completed bag.
 - `bubbles.js`, `title.js`, `hoverLabel.js` — cosmetic: intro transition, title card, hover tooltips + world-anchored labels (checkmarks etc).
+
+## Bag lifecycle
+
+Three states, and the transitions matter more than the code makes obvious:
+
+1. **Open** — items entering the bag are counted after settling (`SETTLE_TIME`) but stay fully dynamic and grabbable. Containment is re-checked every frame, so lifting a mistake back out un-counts it. This window is deliberately forgiving.
+2. **Complete** — the frame the bag holds one of every label in `required`. This is the commit point: `entry.sealed` is set, and every contained item is `lock()`ed (body → static, `userData.locked` → true). Nothing comes back out.
+3. **Sealed** — contents are frozen, `trackContents` is skipped entirely, and anything lowered in afterwards is shoved back out by `ejectIntruders`.
+
+The restock button never reclaims an item from a bag at any stage — the slot gets a freshly spawned replacement instead, and an item that left a bag before it sealed is despawned on the next press so repeat presses can't accumulate duplicates.
 
 ## Gotchas
 
 - **Asset URLs at runtime must use `import.meta.env.BASE_URL`, never a hardcoded absolute path.** GitHub Pages serves this from a subpath (`/Project_Dignity/`); anything built as a template string injected via `<style>`/`<script>` at runtime (not a real `.css`/`.html` file) bypasses Vite's own path rewriting. `title.js`'s font-face is the reference example — bit us once already (font silently fell back to a system font in production, worked fine locally).
 - `vite.config.js`'s `base` is derived automatically from `GITHUB_REPOSITORY` at build time — don't hardcode it.
+- **Scaling every item's mass by the same factor changes nothing.** Gravity is mass-independent, the drag spring is tuned per-kg (`STIFFNESS_PER_KG`), and friction scales with weight — so a uniform "make things heavier" is a pure no-op. What actually governs how far one item shoves another is the *ratio* between them; `layout.js` keeps heaviest:lightest near 4:1 for that reason. To resist toppling, reach for `angularDamping` and restitution instead.
+- **A `STATIC` or `SLEEPING` body does not integrate gravity at all** (`Body.integrate` returns early on both). Anything pinned via `item.lock()` stays exactly where it is, which is the point — but it also means you must never restore a body to `SLEEPING` if it might be unsupported: sleepers are only woken by contact, so one left in mid-air hangs there permanently. Wake on unfreeze, always.
+- Static/sleeping pairs are skipped by the broadphase (`needBroadphaseCollision`), so a pinned item generates no contacts — you cannot ask "is this still supported?" once it is static.
 - Physics step is fixed at 1/240s (`FIXED_DT` in `physics.js`) because thin items (lip balm, toothbrush) tunnel through 3cm shelf boards at larger steps.
 
 ## Testing physics/gameplay changes
