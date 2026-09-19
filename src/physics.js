@@ -17,10 +17,10 @@ export function createPhysics() {
   const staticMaterial = new CANNON.Material('static');
   const itemMaterial = new CANNON.Material('item');
   world.addContactMaterial(
-    new CANNON.ContactMaterial(staticMaterial, itemMaterial, { friction: 0.5, restitution: 0.15 })
+    new CANNON.ContactMaterial(staticMaterial, itemMaterial, { friction: 0.7, restitution: 0.02 })
   );
   world.addContactMaterial(
-    new CANNON.ContactMaterial(itemMaterial, itemMaterial, { friction: 0.4, restitution: 0.1 })
+    new CANNON.ContactMaterial(itemMaterial, itemMaterial, { friction: 0.55, restitution: 0.02 })
   );
 
   // Ground plane. cannon Plane normal is local +Z, so rotate it to face +Y.
@@ -62,8 +62,10 @@ export function createPhysics() {
     const body = new CANNON.Body({
       mass: item.mass,
       material: itemMaterial,
-      linearDamping: 0.05,
-      angularDamping: 0.1,
+      // High angular damping is what makes an item feel solid: a knock still rocks
+      // it, but the rotation bleeds off before it can carry past the tipping point.
+      linearDamping: 0.15,
+      angularDamping: 0.4,
       sleepSpeedLimit: 0.05,
       sleepTimeLimit: 0.6,
       // Items stay on their spawn depth plane (move in X/Y, spin about Z) so nothing rolls out of the bags' reach.

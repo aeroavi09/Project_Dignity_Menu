@@ -119,18 +119,21 @@ export function buildStaticParts() {
 // ---------------------------------------------------------------------------
 // Toiletry item templates. Physics shape is either an upright cylinder
 // (axis = Y) or a box. `dims` = {radius, height} or {size:[x,y,z]}.
-// Masses are rough real-world values.
+// Masses are tuned for play, not realism: the light items are deliberately much
+// heavier than life so a bumped lip balm doesn't get launched across the room.
+// Keep the heaviest:lightest ratio low (~4:1) — that ratio, not the absolute
+// values, is what decides how far one item shoves another.
 // ---------------------------------------------------------------------------
 const T = {
-  shampoo: (color) => ({ kind: 'shampoo', shape: 'cylinder', radius: 0.033, height: 0.2, mass: 0.35, color }),
-  bodyWash: (color) => ({ kind: 'bodyWash', shape: 'cylinder', radius: 0.035, height: 0.21, mass: 0.4, color }),
-  conditioner: (color) => ({ kind: 'conditioner', shape: 'cylinder', radius: 0.032, height: 0.19, mass: 0.33, color }),
-  soap: (color) => ({ kind: 'soap', shape: 'box', size: [0.09, 0.035, 0.06], mass: 0.12, color }),
-  wipes: (color) => ({ kind: 'wipes', shape: 'cylinder', radius: 0.055, height: 0.075, mass: 0.25, color }),
-  toothbrush: (color) => ({ kind: 'toothbrush', shape: 'box', size: [0.018, 0.028, 0.19], mass: 0.02, color }),
-  washrag: (color) => ({ kind: 'washrag', shape: 'box', size: [0.15, 0.03, 0.15], mass: 0.06, color }),
-  deodorant: (color) => ({ kind: 'deodorant', shape: 'box', size: [0.05, 0.12, 0.03], mass: 0.08, color }),
-  lipBalm: (color) => ({ kind: 'lipBalm', shape: 'cylinder', radius: 0.01, height: 0.065, mass: 0.015, color }),
+  shampoo: (color) => ({ kind: 'shampoo', shape: 'cylinder', radius: 0.033, height: 0.2, mass: 0.55, color }),
+  bodyWash: (color) => ({ kind: 'bodyWash', shape: 'cylinder', radius: 0.035, height: 0.21, mass: 0.6, color }),
+  conditioner: (color) => ({ kind: 'conditioner', shape: 'cylinder', radius: 0.032, height: 0.19, mass: 0.52, color }),
+  soap: (color) => ({ kind: 'soap', shape: 'box', size: [0.09, 0.035, 0.06], mass: 0.25, color }),
+  wipes: (color) => ({ kind: 'wipes', shape: 'cylinder', radius: 0.055, height: 0.075, mass: 0.4, color }),
+  toothbrush: (color) => ({ kind: 'toothbrush', shape: 'box', size: [0.018, 0.028, 0.19], mass: 0.14, color }),
+  washrag: (color) => ({ kind: 'washrag', shape: 'box', size: [0.15, 0.03, 0.15], mass: 0.15, color }),
+  deodorant: (color) => ({ kind: 'deodorant', shape: 'box', size: [0.05, 0.12, 0.03], mass: 0.22, color }),
+  lipBalm: (color) => ({ kind: 'lipBalm', shape: 'cylinder', radius: 0.01, height: 0.065, mass: 0.13, color }),
 };
 
 const SHELF_CONTENTS = [
