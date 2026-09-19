@@ -117,6 +117,78 @@ function add(group, geometry, material, x = 0, y = 0, z = 0) {
   return m;
 }
 
+/**
+ * A toothpaste-tube barrel.
+ *
+ * The shape that reads as "toothpaste" isn't a cylinder — it's a cross-section that
+ * morphs along the length: circular at the cap end, progressively flattening and
+ * squaring off into the crimped tail. Each ring is a superellipse
+ * |x/a|^n + |y/b|^n = 1, where n=2 gives the circle at the cap and n grows toward a
+ * rounded rectangle at the crimp while the vertical half-extent collapses.
+ *
+ * Built directly along +Z (the axis items lie on), so it needs no rotation.
+ * `uFrom`/`uTo` emit a sub-range of the same profile, which is how the brand stripe
+ * hugs the barrel exactly.
+ */
+function tubeBarrelGeometry(radius, length, { uFrom = 0, uTo = 1, swell = 1, open = false } = {}) {
+  const RINGS = 32;
+  const RADIAL = 32;
+  const positions = [];
+  const indices = [];
+
+  // 1 = fully crimped at the tail, easing to 0 (round) by two thirds along.
+  function flatness(u) {
+    const t = Math.min(1, u / 0.66);
+    return 1 - t * t * (3 - 2 * t);
+  }
+
+  for (let i = 0; i <= RINGS; i++) {
+    const u = uFrom + ((uTo - uFrom) * i) / RINGS;
+    const f = flatness(u);
+    const a = radius * (1 + 0.2 * f) * swell;
+    const b = radius * (1 - 0.9 * f) * swell;
+    const e = 2 / (2 + 7 * f); // superellipse exponent: circle -> rounded rectangle
+    const z = -length / 2 + u * length;
+    for (let j = 0; j < RADIAL; j++) {
+      const th = (j / RADIAL) * Math.PI * 2;
+      const c = Math.cos(th);
+      const sn = Math.sin(th);
+      positions.push(a * Math.sign(c) * Math.abs(c) ** e, b * Math.sign(sn) * Math.abs(sn) ** e, z);
+    }
+  }
+  for (let i = 0; i < RINGS; i++) {
+    for (let j = 0; j < RADIAL; j++) {
+      const k = (j + 1) % RADIAL;
+      const A = i * RADIAL + j;
+      const B = i * RADIAL + k;
+      const C = (i + 1) * RADIAL + k;
+      const D = (i + 1) * RADIAL + j;
+      indices.push(A, B, C, A, C, D);
+    }
+  }
+
+  if (!open) {
+    // Fan-close both ends so nothing shows through the tube.
+    for (const [ring, flip] of [[0, true], [RINGS, false]]) {
+      const base = positions.length / 3;
+      const z = -length / 2 + (flip ? uFrom : uTo) * length;
+      positions.push(0, 0, z);
+      for (let j = 0; j < RADIAL; j++) {
+        const k = (j + 1) % RADIAL;
+        const A = ring * RADIAL + j;
+        const B = ring * RADIAL + k;
+        indices.push(base, flip ? A : B, flip ? B : A);
+      }
+    }
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  return geometry;
+}
+
 const builders = {
   // Bottles: body + narrower cap, total height = physics cylinder height.
   bottle(g, it) {
@@ -138,14 +210,64 @@ const builders = {
     add(g, new THREE.BoxGeometry(x, y, z), mat(it.color, 0.7));
     add(g, new THREE.BoxGeometry(x * 0.35, y * 1.001, z * 1.001), mat(0x6fa8dc, 0.6));
   },
-  toothbrush(g, it) {
-    const [, h, len] = it.size;
-    const r = 0.008;
-    const handleY = -h / 2 + r;
-    const handle = add(g, new THREE.CapsuleGeometry(r, len - 2 * r, 6, 12), mat(it.color, 0.35), 0, handleY, 0);
+  // Toothbrush + toothpaste tube lying side by side. Nothing visually joins them —
+  // they are one rigid compound body, so they move together regardless. Part
+  // sizes/offsets come straight from that collider so visual and physics stay in step.
+  toothbrushSet(g, it) {
+    const [brush, paste] = it.parts;
+
+    // Every dimension below is a fraction of the part's collider size, so resizing the
+    // set in layout.js scales the whole thing instead of leaving fixed-size details behind.
+    const [bw, bh, blen] = brush.size;
+    const [bx, by, bz] = brush.offset;
+    const r = bw * 0.44;
+    const handleY = by - bh / 2 + r;
+    const handle = add(g, new THREE.CapsuleGeometry(r, blen - 2 * r, 6, 12), mat(it.color, 0.35), bx, handleY, bz);
     handle.rotation.x = Math.PI / 2;
-    const bristleH = h / 2 - (handleY + r);
-    add(g, new THREE.BoxGeometry(0.014, bristleH, 0.035), mat(0xffffff, 0.8), 0, handleY + r + bristleH / 2, len / 2 - 0.03);
+    const bristleH = by + bh / 2 - (handleY + r);
+    add(
+      g,
+      new THREE.BoxGeometry(bw * 0.78, bristleH, blen * 0.184),
+      mat(0xffffff, 0.8),
+      bx,
+      handleY + r + bristleH / 2,
+      bz + blen / 2 - blen * 0.158
+    );
+
+    // Toothpaste tube laid along Z, cap facing the camera like the brush head.
+    const [pw, ph, plen] = paste.size;
+    const [px, py, pz] = paste.offset;
+    const rTube = pw / 2.4; // pw covers the crimp, which flares wider than the round end
+    const capL = plen * 0.097;
+    const neckL = plen * 0.041;
+    const shoulderL = plen * 0.09;
+    const barrelL = plen - capL - neckL - shoulderL;
+    const white = mat(0xf4f4f1, 0.4);
+    let z = pz - plen / 2;
+
+    add(g, tubeBarrelGeometry(rTube, barrelL, {}), white, px, py, z + barrelL / 2);
+    // Brand stripe over the round half, a hair proud of the barrel so it doesn't z-fight.
+    add(
+      g,
+      tubeBarrelGeometry(rTube, barrelL, { uFrom: 0.42, uTo: 0.88, swell: 1.012, open: true }),
+      mat(shade(it.color, 0.5), 0.55),
+      px,
+      py,
+      z + barrelL / 2
+    );
+    // Crimped seam: the flat ridge pinched across the tail.
+    add(g, new THREE.BoxGeometry(pw, ph * 0.18, plen * 0.041), mat(shade(it.color, 0.7), 0.6), px, py, z + plen * 0.014);
+    z += barrelL;
+
+    // Shoulder, neck and cap stay round — that end of a tube never flattens.
+    for (const [geo, material, len] of [
+      [new THREE.CylinderGeometry(rTube * 0.42, rTube, shoulderL, 24), white, shoulderL],
+      [new THREE.CylinderGeometry(rTube * 0.4, rTube * 0.4, neckL, 18), white, neckL],
+      [new THREE.CylinderGeometry(rTube * 0.52, rTube * 0.52, capL, 18), mat(shade(it.color, 0.75), 0.4), capL],
+    ]) {
+      add(g, geo, material, px, py, z + len / 2).rotation.x = Math.PI / 2;
+      z += len;
+    }
   },
   deodorant(g, it) {
     const [x, y, z] = it.size;
@@ -166,7 +288,7 @@ const builderFor = {
   conditioner: 'bottle',
   wipes: 'wipes',
   soap: 'soap',
-  toothbrush: 'toothbrush',
+  toothbrushSet: 'toothbrushSet',
   deodorant: 'deodorant',
   lipBalm: 'lipBalm',
 };

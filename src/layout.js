@@ -117,8 +117,9 @@ export function buildStaticParts() {
 }
 
 // ---------------------------------------------------------------------------
-// Toiletry item templates. Physics shape is either an upright cylinder
-// (axis = Y) or a box. `dims` = {radius, height} or {size:[x,y,z]}.
+// Toiletry item templates. Physics shape is an upright cylinder (axis = Y), a box, or
+// a 'compound' set of boxes welded at fixed offsets. `dims` = {radius, height} or
+// {size:[x,y,z]}; a compound also carries `parts`, and `size` is its overall bounds.
 // Masses are tuned for play, not realism: the light items are deliberately much
 // heavier than life so a bumped lip balm doesn't get launched across the room.
 // Keep the heaviest:lightest ratio low (~4:1) — that ratio, not the absolute
@@ -128,12 +129,28 @@ const T = {
   shampoo: (color) => ({ kind: 'shampoo', shape: 'cylinder', radius: 0.033, height: 0.2, mass: 0.55, color }),
   bodyWash: (color) => ({ kind: 'bodyWash', shape: 'cylinder', radius: 0.035, height: 0.21, mass: 0.6, color }),
   conditioner: (color) => ({ kind: 'conditioner', shape: 'cylinder', radius: 0.032, height: 0.19, mass: 0.52, color }),
-  soap: (color) => ({ kind: 'soap', shape: 'box', size: [0.09, 0.035, 0.06], mass: 0.25, color }),
+  soap: (color) => ({ kind: 'soap', shape: 'box', size: [0.099, 0.0385, 0.066], mass: 0.25, color }),
   wipes: (color) => ({ kind: 'wipes', shape: 'cylinder', radius: 0.055, height: 0.075, mass: 0.4, color }),
-  toothbrush: (color) => ({ kind: 'toothbrush', shape: 'box', size: [0.018, 0.028, 0.19], mass: 0.14, color }),
+  // Toothbrush + toothpaste, strapped together as one rigid set. `size` is the overall
+  // bounds (used for shelf layout); each part's offset is from the body origin, with the
+  // y offsets chosen so both parts rest flat on the shelf.
+  toothbrushSet: (color) => ({
+    kind: 'toothbrushSet',
+    shape: 'compound',
+    size: [0.064, 0.031, 0.209],
+    mass: 0.19,
+    color,
+    parts: [
+      { name: 'brush', size: [0.02, 0.031, 0.209], offset: [-0.0198, 0, 0] },
+      // The tube is round at the cap end and flattens into a wider crimp at the tail,
+      // so its box collider takes the widest width and the tallest height: the round
+      // end sets the height, the crimp sets the width.
+      { name: 'paste', size: [0.033, 0.0275, 0.16], offset: [0.0143, -0.0018, 0.013] },
+    ],
+  }),
   washrag: (color) => ({ kind: 'washrag', shape: 'box', size: [0.15, 0.03, 0.15], mass: 0.15, color }),
-  deodorant: (color) => ({ kind: 'deodorant', shape: 'box', size: [0.05, 0.12, 0.03], mass: 0.22, color }),
-  lipBalm: (color) => ({ kind: 'lipBalm', shape: 'cylinder', radius: 0.01, height: 0.065, mass: 0.13, color }),
+  deodorant: (color) => ({ kind: 'deodorant', shape: 'box', size: [0.0525, 0.126, 0.0315], mass: 0.22, color }),
+  lipBalm: (color) => ({ kind: 'lipBalm', shape: 'cylinder', radius: 0.0105, height: 0.0683, mass: 0.13, color }),
 };
 
 const SHELF_CONTENTS = [
@@ -150,7 +167,7 @@ const SHELF_CONTENTS = [
   ],
   // Shelf 3
   [
-    T.toothbrush(0xe53935), T.toothbrush(0x43a047), T.toothbrush(0xfb8c00), T.toothbrush(0x00acc1),
+    T.toothbrushSet(0xe53935), T.toothbrushSet(0x43a047), T.toothbrushSet(0xfb8c00), T.toothbrushSet(0x00acc1),
     T.washrag(0xf28b82), T.washrag(0xfdd663),
   ],
   // Shelf 4

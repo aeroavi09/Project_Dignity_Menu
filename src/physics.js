@@ -54,11 +54,11 @@ export function createPhysics() {
     world.addBody(body);
   }
 
+  function box(size) {
+    return new CANNON.Box(new CANNON.Vec3(size[0] / 2, size[1] / 2, size[2] / 2));
+  }
+
   function createItemBody(item) {
-    const shape =
-      item.shape === 'cylinder'
-        ? new CANNON.Cylinder(item.radius, item.radius, item.height, 16) // axis along Y in cannon-es
-        : new CANNON.Box(new CANNON.Vec3(item.size[0] / 2, item.size[1] / 2, item.size[2] / 2));
     const body = new CANNON.Body({
       mass: item.mass,
       material: itemMaterial,
@@ -72,7 +72,17 @@ export function createPhysics() {
       linearFactor: new CANNON.Vec3(1, 1, 0),
       angularFactor: new CANNON.Vec3(0, 0, 1),
     });
-    body.addShape(shape);
+    if (item.shape === 'compound') {
+      // A set (toothbrush + toothpaste): several boxes welded into one body at fixed
+      // offsets, so the parts move as one object and can never come apart. cannon
+      // approximates a compound body's inertia from its overall AABB, which is fine
+      // for parts this close together.
+      for (const part of item.parts) body.addShape(box(part.size), new CANNON.Vec3(...part.offset));
+    } else if (item.shape === 'cylinder') {
+      body.addShape(new CANNON.Cylinder(item.radius, item.radius, item.height, 16)); // axis along Y
+    } else {
+      body.addShape(box(item.size));
+    }
     body.position.set(...item.pos);
     world.addBody(body);
     return body;
