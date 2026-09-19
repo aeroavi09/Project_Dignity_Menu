@@ -11,6 +11,9 @@ import { createSoftRag } from './softRag.js';
 import { showTitle } from './title.js';
 import { createTagSystem } from './tags.js';
 import { createRestockButton } from './restock.js';
+import { createAchievements } from './achievements.js';
+import { createBottleFlipWatcher } from './bottleFlip.js';
+import { createThrowInWatcher } from './throwIn.js';
 
 const labelNameMap = {
   shampoo: 'Shampoo',
@@ -18,7 +21,7 @@ const labelNameMap = {
   conditioner: 'Hair Conditioner',
   wipes: 'Hand Wipes',
   soap: 'Soap',
-  toothbrush: 'Toothbrush',
+  toothbrushSet: 'Toothbrush & Toothpaste',
   washrag: 'Washrag',
   deodorant: 'Deodorant',
   lipBalm: 'Lip Balm',
@@ -160,6 +163,10 @@ createRestockButton({
   drag,
 });
 
+const achievements = createAchievements();
+const bottleFlip = createBottleFlipWatcher({ drag, items: trackedItems, achievements });
+const throwIn = createThrowInWatcher({ drag, items: trackedItems, bags, achievements });
+
 const tags = createTagSystem({
   world,
   scene,
@@ -206,6 +213,8 @@ function frame(now) {
   for (const rag of rags) rag.update();
   bags.update(elapsed);
   tags.update(elapsed);
+  bottleFlip.update(elapsed);
+  throwIn.update(elapsed);
 
   renderer.render(scene, camera);
   requestAnimationFrame(frame);

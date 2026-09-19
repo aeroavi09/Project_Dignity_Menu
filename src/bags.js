@@ -67,13 +67,13 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     onGrab: (point, origin) => spawnBag(origin).beginDrag(point),
   });
 
-  function isInside(body, c) {
+  function isInside(body, c, margin = 0) {
     const p = body.position;
     return (
-      Math.abs(p.x - c.x) < BAG.width / 2 &&
-      Math.abs(p.z - c.z) < BAG.depth / 2 &&
-      p.y > c.y &&
-      p.y < c.y + BAG.height + MOUTH_TOLERANCE
+      Math.abs(p.x - c.x) < BAG.width / 2 + margin &&
+      Math.abs(p.z - c.z) < BAG.depth / 2 + margin &&
+      p.y > c.y - margin &&
+      p.y < c.y + BAG.height + MOUTH_TOLERANCE + margin
     );
   }
 
@@ -123,6 +123,17 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     }
   }
 
+  /**
+   * The placed bag whose volume currently holds `body`, or null. `margin` widens the
+   * box so a throw that clips the rim on its way in still counts as "at the bag".
+   */
+  function bagAt(body, margin = 0) {
+    return (
+      bags.find((entry) => entry.bag.state === 'placed' && isInside(body, entry.bag.center, margin)) ??
+      null
+    );
+  }
+
   /** True once an item has settled inside any bag — restocking leaves those alone. */
   function holds(item) {
     return bags.some((entry) => entry.contained.has(item));
@@ -140,6 +151,7 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     update,
     holds,
     forget,
+    bagAt,
     get list() {
       return bags;
     },
