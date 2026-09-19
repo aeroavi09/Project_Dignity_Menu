@@ -16,6 +16,16 @@ const STYLE = `
   font-family: system-ui, -apple-system, sans-serif;
 }
 .tagpop-title { font-size: 15px; font-weight: 700; color: #5a4632; margin: 0; }
+.tagpop-tools { display: flex; gap: 8px; align-items: center; align-self: flex-start; }
+.tagpop-tool-btn {
+  width: 32px; height: 32px; border-radius: 8px; border: 2px solid rgba(0, 0, 0, 0.15);
+  background: #fff; cursor: pointer; font-size: 15px; display: flex; align-items: center; justify-content: center;
+}
+.tagpop-tool-btn.active { border-color: #222; background: #ffe9a8; }
+.tagpop-text-input {
+  padding: 5px 8px; border-radius: 6px; border: 1px solid #c8a165; font-size: 13px;
+  width: 120px; font-family: system-ui, -apple-system, sans-serif;
+}
 .tagpop-body { display: flex; gap: 12px; align-items: flex-start; }
 .tagpop-colors { display: flex; flex-direction: column; gap: 6px; }
 .tagpop-swatch {
@@ -45,6 +55,7 @@ export function createTagPopup({ onComplete }) {
 
   let color = COLORS[2];
   let size = SIZES[1];
+  let tool = 'draw'; // 'draw' | 'text'
   let drawing = false;
   let lastX = 0;
   let lastY = 0;
@@ -76,14 +87,30 @@ export function createTagPopup({ onComplete }) {
     return [((e.clientX - r.left) / r.width) * CANVAS_W, ((e.clientY - r.top) / r.height) * CANVAS_H];
   }
 
+  function stampText(x, y) {
+    const text = textInput.value.trim();
+    if (!text) return;
+    const fontSize = Math.max(14, size * 3);
+    ctx.fillStyle = color;
+    ctx.font = `bold ${fontSize}px system-ui, -apple-system, sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x, y);
+  }
+
   canvas.addEventListener('pointerdown', (e) => {
+    const [x, y] = canvasPoint(e);
+    if (tool === 'text') {
+      stampText(x, y);
+      return;
+    }
     drawing = true;
     try {
       canvas.setPointerCapture(e.pointerId);
     } catch {
       // Ignore: some input sources (or synthetic events) have no capturable pointer session.
     }
-    [lastX, lastY] = canvasPoint(e);
+    [lastX, lastY] = [x, y];
     ctx.fillStyle = color;
     ctx.beginPath();
     ctx.arc(lastX, lastY, size / 2, 0, Math.PI * 2);
@@ -148,6 +175,35 @@ export function createTagPopup({ onComplete }) {
   title.className = 'tagpop-title';
   title.textContent = 'Design Your Tag';
 
+  const drawToolBtn = document.createElement('button');
+  drawToolBtn.className = 'tagpop-tool-btn active';
+  drawToolBtn.textContent = '✏️';
+  drawToolBtn.title = 'Draw';
+  const textToolBtn = document.createElement('button');
+  textToolBtn.className = 'tagpop-tool-btn';
+  textToolBtn.textContent = 'Aa';
+  textToolBtn.title = 'Add text';
+  const textInput = document.createElement('input');
+  textInput.className = 'tagpop-text-input';
+  textInput.type = 'text';
+  textInput.placeholder = 'Type, then tap the tag';
+  textInput.maxLength = 24;
+  textInput.style.display = 'none';
+
+  function setTool(t) {
+    tool = t;
+    drawToolBtn.classList.toggle('active', t === 'draw');
+    textToolBtn.classList.toggle('active', t === 'text');
+    textInput.style.display = t === 'text' ? 'block' : 'none';
+    if (t === 'text') textInput.focus();
+  }
+  drawToolBtn.addEventListener('click', () => setTool('draw'));
+  textToolBtn.addEventListener('click', () => setTool('text'));
+
+  const toolsRow = document.createElement('div');
+  toolsRow.className = 'tagpop-tools';
+  toolsRow.append(drawToolBtn, textToolBtn, textInput);
+
   const doneBtn = document.createElement('button');
   doneBtn.className = 'tagpop-btn tagpop-done';
   doneBtn.textContent = '✓';
@@ -160,7 +216,7 @@ export function createTagPopup({ onComplete }) {
 
   const panel = document.createElement('div');
   panel.className = 'tagpop-panel';
-  panel.append(title, body, sizesRow, actions);
+  panel.append(title, toolsRow, body, sizesRow, actions);
 
   const backdrop = document.createElement('div');
   backdrop.className = 'tagpop-backdrop';
@@ -178,8 +234,10 @@ export function createTagPopup({ onComplete }) {
   function open() {
     color = COLORS[2];
     size = SIZES[1];
+    textInput.value = '';
     swatches.forEach((s, i) => s.classList.toggle('active', i === 2));
     sizeBtns.forEach((b, i) => b.classList.toggle('active', i === 1));
+    setTool('draw');
     resetCanvas();
     backdrop.style.display = 'flex';
   }

@@ -4,6 +4,7 @@ import { SHELF } from './layout.js';
 import { GENERATOR_GROUP } from './softBodyBag.js';
 
 const SIZE = [0.16, 0.1, 0.15];
+const SCALE = 1.6;
 export const TAG_GENERATOR_X = SHELF.centerX - 0.35;
 
 /**
@@ -40,6 +41,7 @@ export function createTagGenerator({ world, scene, pickables, onGrab }) {
     group.add(dab);
   });
 
+  group.scale.setScalar(SCALE);
   group.position.set(x, baseY, z);
   group.userData.label = 'Tag Maker';
   group.userData.onGrab = () => {
@@ -48,9 +50,10 @@ export function createTagGenerator({ world, scene, pickables, onGrab }) {
   scene.add(group);
   pickables.push(group);
 
+  const [sx, sy, sz] = SIZE.map((s) => s * SCALE);
   const body = new CANNON.Body({ type: CANNON.Body.STATIC, collisionFilterGroup: GENERATOR_GROUP });
-  body.addShape(new CANNON.Box(new CANNON.Vec3(SIZE[0] / 2, SIZE[1] / 2, SIZE[2] / 2)));
-  body.position.set(x, baseY + SIZE[1] / 2, z);
+  body.addShape(new CANNON.Box(new CANNON.Vec3(sx / 2, sy / 2, sz / 2)));
+  body.position.set(x, baseY + sy / 2, z);
   world.addBody(body);
 
   return { position: new THREE.Vector3(x, baseY, z) };
