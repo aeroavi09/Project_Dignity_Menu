@@ -37,6 +37,14 @@ export function createSoftRag({ world, scene, item }) {
   const [width, height, depth] = item.size;
   const spacing = width / (PARTICLES - 1);
 
+  function particleRestPosition(i, out) {
+    return out.set(
+      item.pos[0] - width / 2 + i * spacing,
+      item.pos[1] - height / 2 + RADIUS + 0.001,
+      item.pos[2]
+    );
+  }
+
   const particles = Array.from({ length: PARTICLES }, (_, i) => {
     const p = new CANNON.Body({
       mass: item.mass / PARTICLES,
@@ -47,12 +55,16 @@ export function createSoftRag({ world, scene, item }) {
       collisionFilterGroup: RAG_GROUP,
       allowSleep: false,
     });
-    p.position.set(item.pos[0] - width / 2 + i * spacing, item.pos[1] - height / 2 + RADIUS + 0.001, item.pos[2]);
     world.addBody(p);
     return p;
   });
+  particles.forEach((p, i) => particleRestPosition(i, p.position));
+
+  const links = [];
   for (let i = 0; i < PARTICLES - 1; i++) {
-    world.addConstraint(new CANNON.DistanceConstraint(particles[i], particles[i + 1], spacing));
+    const link = new CANNON.DistanceConstraint(particles[i], particles[i + 1], spacing);
+    links.push(link);
+    world.addConstraint(link);
   }
   const bends = [];
   for (let i = 0; i < PARTICLES - 2; i++) {
@@ -83,7 +95,7 @@ export function createSoftRag({ world, scene, item }) {
   const grabOffset = new CANNON.Vec3();
   const stretch = new CANNON.Vec3();
 
-  world.addEventListener('postStep', () => {
+  function onPostStep() {
     if (cursor) {
       const p = cursor.particle.position;
       target.vsub(p, stretch);
@@ -97,7 +109,8 @@ export function createSoftRag({ world, scene, item }) {
       const speed = p.velocity.length();
       if (speed > MAX_SPEED) p.velocity.scale(MAX_SPEED / speed, p.velocity);
     }
-  });
+  }
+  world.addEventListener('postStep', onPostStep);
 
   function setTarget(x, y, z) {
     target.set(x + grabOffset.x, y + grabOffset.y, z + grabOffset.z);
@@ -106,6 +119,46 @@ export function createSoftRag({ world, scene, item }) {
 
   function release() {
     cursor = null;
+  }
+
+  /** Drop the rag flat back on its spawn slot. */
+  function reset() {
+    cursor = null;
+    particles.forEach((p, i) => {
+      particleRestPosition(i, p.position);
+      p.velocity.setZero();
+      p.angularVelocity.setZero();
+      p.wakeUp();
+    });
+  }
+
+  /** Shove the whole rag, used when a sealed bag spits it back out. */
+  function push(vx, vy) {
+    for (const p of particles) {
+      p.velocity.set(vx, vy, 0);
+      p.wakeUp();
+    }
+  }
+
+  /** Pin the rag where it lies — used once it has settled inside a bag. */
+  function lock() {
+    cursor = null;
+    for (const p of particles) {
+      p.type = CANNON.Body.STATIC;
+      p.velocity.setZero();
+      p.angularVelocity.setZero();
+      p.updateMassProperties();
+    }
+  }
+
+  function dispose() {
+    cursor = null;
+    world.removeEventListener('postStep', onPostStep);
+    for (const link of links) world.removeConstraint(link);
+    for (const p of particles) world.removeBody(p);
+    scene.remove(mesh);
+    mesh.geometry.dispose();
+    mesh.material.dispose();
   }
 
   function beginDrag(hit) {
@@ -168,6 +221,10 @@ export function createSoftRag({ world, scene, item }) {
     mesh,
     body,
     update,
+    reset,
+    push,
+    lock,
+    dispose,
     get held() {
       return cursor !== null;
     },

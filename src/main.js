@@ -1,3 +1,4 @@
+import * as CANNON from 'cannon-es';
 import { buildItems } from './layout.js';
 import { createPhysics, FIXED_DT, MAX_SUBSTEPS } from './physics.js';
 import { createDragController } from './drag.js';
@@ -9,6 +10,7 @@ import { createBagSystem } from './bags.js';
 import { createSoftRag } from './softRag.js';
 import { showTitle } from './title.js';
 import { createTagSystem } from './tags.js';
+import { createRestockButton } from './restock.js';
 
 const labelNameMap = {
   shampoo: 'Shampoo',
@@ -31,26 +33,105 @@ addStaticMeshes(scene, staticParts);
 const pairs = [];
 const rags = [];
 const trackedItems = [];
-for (const item of buildItems()) {
-  const label = labelNameMap[item.kind];
-  if (item.kind === 'washrag') {
-    const rag = createSoftRag({ world, scene, item });
+const pickables = [];
+
+function drop(list, entry) {
+  const i = list.indexOf(entry);
+  if (i !== -1) list.splice(i, 1);
+}
+
+/**
+ * Build one item from its layout spec and wire it into every list that tracks items.
+ * Called for the initial shelf contents and again by the restock button whenever a
+ * slot needs a replacement, so it has to be safe to run mid-game.
+ */
+function spawnItem(spec) {
+  const label = labelNameMap[spec.kind];
+
+  if (spec.kind === 'washrag') {
+    const rag = createSoftRag({ world, scene, item: spec });
     rag.mesh.userData.label = label;
     rags.push(rag);
-    trackedItems.push({ body: rag.body, label, isHeld: () => rag.held });
-    continue;
+    pickables.push(rag.mesh);
+    const handle = {
+      spec,
+      label,
+      body: rag.body,
+      isHeld: () => rag.held,
+      push: (vx, vy) => rag.push(vx, vy),
+      reset: () => rag.reset(),
+      lock: () => {
+        rag.lock();
+        rag.mesh.userData.locked = true;
+      },
+      destroy: () => {
+        rag.dispose();
+        drop(rags, rag);
+        drop(pickables, rag.mesh);
+      },
+    };
+    trackedItems.push(handle);
+    return handle;
   }
-  const body = createItemBody(item);
-  const mesh = createItemMesh(item);
+
+  const body = createItemBody(spec);
+  const mesh = createItemMesh(spec);
   mesh.userData.body = body;
   mesh.userData.label = label;
   scene.add(mesh);
-  pairs.push({ body, mesh });
-  trackedItems.push({ body, label });
+  const pair = { body, mesh };
+  pairs.push(pair);
+  pickables.push(mesh);
+
+  const handle = {
+    spec,
+    label,
+    body,
+    push: (vx, vy) => {
+      body.velocity.set(vx, vy, 0);
+      body.wakeUp();
+    },
+    // Once an item has settled in a bag it belongs to that bag: pinned in place and
+    // no longer grabbable, so it can never come back out.
+    lock: () => {
+      body.type = CANNON.Body.STATIC;
+      body.velocity.setZero();
+      body.angularVelocity.setZero();
+      body.updateMassProperties();
+      mesh.userData.locked = true;
+    },
+    reset: () => {
+      body.position.set(...spec.pos);
+      body.quaternion.set(0, 0, 0, 1);
+      body.velocity.setZero();
+      body.angularVelocity.setZero();
+      body.wakeUp();
+    },
+    destroy: () => {
+      world.removeBody(body);
+      scene.remove(mesh);
+      mesh.geometry.dispose();
+      mesh.material.dispose();
+      drop(pairs, pair);
+      drop(pickables, mesh);
+    },
+  };
+  trackedItems.push(handle);
+  return handle;
+}
+
+function despawnItem(handle) {
+  if (drag.held === handle.body) drag.release();
+  handle.destroy();
+  drop(trackedItems, handle);
+  bags.forget(handle);
 }
 
 const drag = createDragController(world);
-const pickables = [...pairs.map((p) => p.mesh), ...rags.map((r) => r.mesh)];
+
+// One slot per position on the shelves; `item` is whatever currently occupies it.
+const slots = buildItems().map((spec) => ({ spec, item: null }));
+for (const slot of slots) slot.item = spawnItem(slot.spec);
 const interaction = createInteraction({
   camera,
   domElement: renderer.domElement,
@@ -68,6 +149,15 @@ const bags = createBagSystem({
   drag,
   pickables,
   items: trackedItems,
+});
+
+createRestockButton({
+  slots,
+  spawnItem,
+  despawnItem,
+  items: trackedItems,
+  bags,
+  drag,
 });
 
 const tags = createTagSystem({

@@ -28,6 +28,15 @@ export function createInteraction({ camera, domElement, drag, pickables }) {
     return null;
   }
 
+  // Items that have settled into a bag are pinned there: still hoverable (so the
+  // label works) but not grabbable.
+  function isLocked(object) {
+    for (let o = object; o; o = o.parent) {
+      if (o.userData.locked) return true;
+    }
+    return false;
+  }
+
   function findOnGrab(object) {
     for (let o = object; o; o = o.parent) {
       if (o.userData.onGrab) return o.userData.onGrab;
@@ -40,7 +49,7 @@ export function createInteraction({ camera, domElement, drag, pickables }) {
     updateNdc(event);
     raycaster.setFromCamera(ndc, camera);
     const hit = raycaster.intersectObjects(pickables, true)[0];
-    if (!hit) return;
+    if (!hit || isLocked(hit.object)) return;
     const onGrab = findOnGrab(hit.object);
     const body = onGrab ? null : findBody(hit.object);
     if (onGrab) {
@@ -62,7 +71,8 @@ export function createInteraction({ camera, domElement, drag, pickables }) {
     updateNdc(event);
     if (activePointer === null) {
       raycaster.setFromCamera(ndc, camera);
-      domElement.style.cursor = raycaster.intersectObjects(pickables, true).length ? 'grab' : 'default';
+      const over = raycaster.intersectObjects(pickables, true)[0];
+      domElement.style.cursor = over && !isLocked(over.object) ? 'grab' : 'default';
     }
   }
 
