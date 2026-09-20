@@ -9,13 +9,12 @@ const FOV = 45;
 export function createScene(container) {
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.shadowMap.enabled = true;
-  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.shadowMap.enabled = false; // no shadows anywhere: flat, poster-like lighting
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xe9e4dc);
+  scene.background = new THREE.Color(0xffffff);
 
   // Fixed, locked perspective camera. No orbit controls: gameplay reads as 2.5D.
   const camera = new THREE.PerspectiveCamera(FOV, 1, 0.05, 50);
@@ -39,25 +38,26 @@ export function createScene(container) {
   window.addEventListener('resize', resize);
 
   // Lights
-  scene.add(new THREE.HemisphereLight(0xffffff, 0xb8a894, 1.1));
-  const sun = new THREE.DirectionalLight(0xffffff, 1.8);
+  scene.add(new THREE.HemisphereLight(0xffffff, 0x4a2c6f, 0.85));
+  const sun = new THREE.DirectionalLight(0xfff6e8, 2.0);
   sun.position.set(1.5, 3.5, 3);
-  sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
-  sun.shadow.camera.left = -2.5;
-  sun.shadow.camera.right = 2.5;
-  sun.shadow.camera.top = 3;
-  sun.shadow.camera.bottom = -1;
-  sun.shadow.camera.near = 0.5;
-  sun.shadow.camera.far = 10;
-  sun.shadow.bias = -0.0005;
-  sun.shadow.normalBias = 0.01;
   scene.add(sun);
+
+  // Fill and rim. With shadows off these do all the shaping: a cool fill from the opposite
+  // side keeps the round bottles from flattening, and the rim skims their left edges so they
+  // separate from the white wall instead of dissolving into it.
+  const fill = new THREE.DirectionalLight(0xdfe8ff, 0.55);
+  fill.position.set(-2.5, 1.6, 2.2);
+  scene.add(fill);
+
+  const rim = new THREE.DirectionalLight(0xffffff, 0.7);
+  rim.position.set(-1.8, 2.2, -1.5);
+  scene.add(rim);
 
   // Room: floor and back wall
   const floor = new THREE.Mesh(
     new THREE.PlaneGeometry(12, 8),
-    new THREE.MeshStandardMaterial({ color: 0xcdb99c, roughness: 0.9 })
+    new THREE.MeshStandardMaterial({ color: 0x6b3fa0, roughness: 0.85 })
   );
   floor.rotation.x = -Math.PI / 2;
   floor.position.z = 1.5;
@@ -66,7 +66,15 @@ export function createScene(container) {
 
   const wall = new THREE.Mesh(
     new THREE.PlaneGeometry(12, 6),
-    new THREE.MeshStandardMaterial({ color: 0xf1ece4, roughness: 1 })
+    new THREE.MeshStandardMaterial({
+      color: 0xffffff,
+      roughness: 1,
+      // The hemisphere light gives a vertical surface a 50/50 sky/ground blend, so the
+      // purple floor would tint the wall grey. A flat emissive lift puts it back at true
+      // white without brightening anything else in the room.
+      emissive: 0xffffff,
+      emissiveIntensity: 0.45,
+    })
   );
   wall.position.set(0, 3, ROOM.backZ);
   wall.receiveShadow = true;
@@ -86,7 +94,7 @@ export function addStaticMeshes(scene, parts) {
   const materials = new Map();
   for (const part of parts) {
     if (!materials.has(part.color)) {
-      materials.set(part.color, new THREE.MeshStandardMaterial({ color: part.color, roughness: 0.55 }));
+      materials.set(part.color, new THREE.MeshStandardMaterial({ color: part.color, roughness: 0.42 }));
     }
     const mesh = new THREE.Mesh(new THREE.BoxGeometry(...part.size), materials.get(part.color));
     mesh.position.set(...part.pos);
@@ -100,7 +108,7 @@ export function addStaticMeshes(scene, parts) {
 // Item visuals. Each is a Group centered on the physics body's origin and kept
 // inside the physics shape's bounds so what you see is what collides.
 // ---------------------------------------------------------------------------
-function mat(color, roughness = 0.45) {
+function mat(color, roughness = 0.32) {
   return new THREE.MeshStandardMaterial({ color, roughness });
 }
 

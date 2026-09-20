@@ -35,8 +35,13 @@ export const TABLE = {
   apronT: 0.02,
 };
 
-const WHITE = 0xf4f4f2;
-const PURPLE_TOP = 0x7b3fbf;
+// Furniture palette: bright ocean blue.
+// WHITE is kept as the name the parts list uses for the structural pieces -- shelf posts,
+// boards, back panel, table legs and apron all share this one tone so the set reads as
+// designed rather than assembled. The table top is a lighter tint of the same hue: related
+// to the frame, but bright enough that bags and tags stay legible on it.
+const WHITE = 0x1ca7d8;
+const TABLE_TOP = 0x52c6ea;
 
 /** Static furniture parts as boxes: { size:[x,y,z], pos:[x,y,z], color } */
 export function buildStaticParts() {
@@ -71,7 +76,7 @@ export function buildStaticParts() {
     });
   });
 
-  // Table: purple top, white legs and apron frame.
+  // Table: soft off-white top, white legs and apron frame.
   const t = TABLE;
   const legH = t.topY - t.topT;
   // The collider is thicker than the visible top (it extends down into the space
@@ -82,7 +87,7 @@ export function buildStaticParts() {
     size: [t.width, t.topT, t.depth],
     pos: [t.centerX, t.topY - t.topT / 2, t.centerZ],
     collider: { size: [t.width, colliderT, t.depth], pos: [t.centerX, t.topY - colliderT / 2, t.centerZ] },
-    color: PURPLE_TOP,
+    color: TABLE_TOP,
   });
   const lx = t.width / 2 - t.legW / 2 - 0.03;
   const lz = t.depth / 2 - t.legW / 2 - 0.03;
@@ -156,14 +161,14 @@ const T = {
 const SHELF_CONTENTS = [
   // Shelf 1 (top)
   [
-    T.shampoo(0xff8fc8), T.shampoo(0xff8fc8), T.shampoo(0xff8fc8),
-    T.bodyWash(0x2f7de1), T.bodyWash(0x2f7de1), T.bodyWash(0x2f7de1),
-    T.conditioner(0x8e4fd6), T.conditioner(0x8e4fd6), T.conditioner(0x8e4fd6),
+    T.shampoo(0xff5fae), T.shampoo(0xff5fae), T.shampoo(0xff5fae),
+    T.bodyWash(0x1f6bff), T.bodyWash(0x1f6bff), T.bodyWash(0x1f6bff),
+    T.conditioner(0xa855f7), T.conditioner(0xa855f7), T.conditioner(0xa855f7),
   ],
   // Shelf 2
   [
-    T.soap(0xfafaf5), T.soap(0xd9c29a), T.soap(0xfafaf5),
-    T.wipes(0x8fd3c4), T.wipes(0x8fd3c4),
+    T.soap(0xfafaf5), T.soap(0xffc247), T.soap(0xfafaf5),
+    T.wipes(0x2ec4a6), T.wipes(0x2ec4a6),
   ],
   // Shelf 3
   [
@@ -172,8 +177,8 @@ const SHELF_CONTENTS = [
   ],
   // Shelf 4
   [
-    T.deodorant(0x5f6b7a), T.deodorant(0x2b4c7e), T.deodorant(0x9aa5b1),
-    T.lipBalm(0xe85d75), T.lipBalm(0xf2a65a), T.lipBalm(0x6cc3a0),
+    T.deodorant(0x3949ab), T.deodorant(0x00897b), T.deodorant(0xef6c00),
+    T.lipBalm(0xe85d75), T.lipBalm(0xf2a65a), T.lipBalm(0x26c281),
   ],
   // Shelf 5 (bottom): empty
   [],
