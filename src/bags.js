@@ -7,7 +7,9 @@ const SETTLE_SPEED = 0.2;
 const SETTLE_TIME = 0.2;
 // Items share one depth plane, so a full bag piles up; count items poking a little out of the mouth.
 const MOUTH_TOLERANCE = 0.08;
-const MIN_BAG_GAP = BAG.width + 0.07;
+// The pouch bulges ~20% past BAG.width at its belly, so the old +0.07 gap let two bags
+// visually overlap even though their colliders cleared.
+const MIN_BAG_GAP = BAG.width + 0.14;
 // A bag holding one of every item is sealed: its contents are locked in, and anything
 // else lowered into it is spat back out rather than counted.
 const EJECT_UP = 1.3; // m/s

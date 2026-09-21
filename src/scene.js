@@ -3,7 +3,10 @@ import { ROOM } from './layout.js';
 
 const CAMERA_TARGET = new THREE.Vector3(0, 0.95, 0);
 const CAMERA_HEIGHT = 1.35;
-const MIN_VISIBLE_WIDTH = 4.3; // meters of scene width that must always fit on screen
+// Meters of scene width that must always fit on screen. The shelf and table together span
+// x=-1.55..1.55, so this is that 3.1 m plus a margin -- tightening it trims the empty room at
+// the sides. Don't go below ~3.4 or items flicked sideways leave the frame.
+const MIN_VISIBLE_WIDTH = 3.9;
 const FOV = 45;
 
 export function createScene(container) {
@@ -28,7 +31,9 @@ export function createScene(container) {
     // the viewing angle never changes.
     const halfV = THREE.MathUtils.degToRad(FOV / 2);
     const distForWidth = MIN_VISIBLE_WIDTH / 2 / (Math.tan(halfV) * aspect);
-    const dist = Math.max(3.3, distForWidth);
+    // On a widescreen this floor, not MIN_VISIBLE_WIDTH, is what sets the framing. It also
+    // keeps the shelf top (y=1.9) inside the view: at 2.75 the top edge lands at y~2.09.
+    const dist = Math.max(2.75, distForWidth);
     camera.position.set(0, CAMERA_HEIGHT, dist);
     camera.lookAt(CAMERA_TARGET);
     camera.updateProjectionMatrix();
