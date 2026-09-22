@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { BAG, createBag } from './softBodyBag.js';
+import { BAG, bagHalfExtents, createBag } from './softBodyBag.js';
 import { createBagGenerator } from './bagGenerator.js';
 import { createWorldLabel } from './hoverLabel.js';
 
@@ -7,13 +7,35 @@ const SETTLE_SPEED = 0.2;
 const SETTLE_TIME = 0.2;
 // Items share one depth plane, so a full bag piles up; count items poking a little out of the mouth.
 const MOUTH_TOLERANCE = 0.08;
-// The pouch bulges ~20% past BAG.width at its belly, so the old +0.07 gap let two bags
-// visually overlap even though their colliders cleared.
-const MIN_BAG_GAP = BAG.width + 0.14;
+// The pouch bulges well past BAG.width at its belly, so spacing bags by the nominal width
+// lets two of them visually overlap even though their colliders clear. Measure the widest
+// point off the profile rather than carrying a hand-tuned margin that goes stale the next
+// time the bag is reshaped.
+const MIN_BAG_GAP = (() => {
+  let widest = 0;
+  for (let i = 0; i <= 20; i++) widest = Math.max(widest, bagHalfExtents(i / 20).x);
+  return 2 * widest + 0.04;
+})();
 // A bag holding one of every item is sealed: its contents are locked in, and anything
 // else lowered into it is spat back out rather than counted.
 const EJECT_UP = 1.3; // m/s
 const EJECT_SIDE = 0.9; // m/s
+// The placed bag's walls sit a touch inside BAG.depth, plus a little slack so an item that
+// only just fits isn't scraping both walls on the way down.
+const WALL_CLEARANCE = 0.02;
+
+// Finishing a bag: the film gathers into its pouch shape while the contents stand themselves
+// up inside it. One animation, so the bag looks like it is drawing the order together.
+const FINISH_DURATION = 0.8;
+const ROW_GAP = 0.008;
+// Pack the rows just inside the bag's nominal width. The film is a rounded cross-section, so
+// an item's corner sits further from the axis than its edge does; holding the contents off
+// the walls is what buys that diagonal its clearance.
+const PACK_INSET = 0.92;
+// The folded washrag is the base layer; everything else stands on top of it.
+const RAG_FOLD_T = 0.026;
+const UPRIGHT = new THREE.Quaternion();
+const TIPPED = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
 
 const CHECK_CSS = `
   background: #22a447;
@@ -35,6 +57,20 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
   const required = new Set(items.map((i) => i.label));
   const checkPos = new THREE.Vector3();
 
+  // Every item has to physically fit through the bag. Items are Z-locked and can only spin in
+  // the X/Y plane, so their Z extent is fixed however the player turns them: anything deeper
+  // than the bag's interior straddles the front and back walls and can never be packed. This
+  // is the cheapest check that a bag or item resize is safe, and it has bitten once already --
+  // shrinking the bag to 170mm silently stranded the 209mm toothbrush set.
+  for (const item of items) {
+    const depth = item.spec.shape === 'cylinder' ? item.spec.radius * 2 : item.spec.size[2];
+    if (depth > BAG.depth - WALL_CLEARANCE) {
+      throw new Error(
+        `${item.label} is ${(depth * 1000).toFixed(0)}mm deep and cannot fit a ${(BAG.depth * 1000).toFixed(0)}mm bag`
+      );
+    }
+  }
+
   function canPlace(x) {
     return bags.every(({ bag }) => bag.state === 'soft' || Math.abs(bag.center.x - x) >= MIN_BAG_GAP);
   }
@@ -43,6 +79,7 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     const bag = createBag({
       world,
       scene,
+      camera, // the inked edges are billboarded, so they need to know where you are looking from
       origin,
       canPlace,
       onSnapStart: () => pickables.splice(pickables.indexOf(bag.mesh), 1),
@@ -57,6 +94,7 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
       checkmark: createWorldLabel(camera, domElement, '✓', CHECK_CSS),
       complete: false,
       sealed: false,
+      finish: null, // in-flight shrivel + tidy animation, see planTidy
       tag: null, // set by tags.js once a gift tag has snapped onto this bag
     });
     return bag;
@@ -97,6 +135,62 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     return [...required].every((l) => labels.has(l));
   }
 
+  /**
+   * Footprint and height of an item once it is stood upright, plus the rotation that gets it
+   * there. Bottles, jars and sticks are modelled standing already; the toothbrush set lies
+   * along Z, so tipping it a quarter turn about X stands it on its tail and swaps which of
+   * its dimensions is the height.
+   */
+  function standingSize(spec) {
+    if (spec.shape === 'cylinder') {
+      return { x: spec.radius * 2, z: spec.radius * 2, y: spec.height, quat: UPRIGHT };
+    }
+    const [sx, sy, sz] = spec.size;
+    if (spec.shape === 'compound') return { x: sx, z: sy, y: sz, quat: TIPPED };
+    return { x: sx, z: sz, y: sy, quat: UPRIGHT };
+  }
+
+  /**
+   * Lay out the finished bag's contents: everything upright, tallest along the back so the
+   * short items in front don't hide them, and all of it standing on the folded washrag.
+   *
+   * Two rows because a single one doesn't fit -- the eight rigid items are about 486mm stood
+   * side by side and the bag is ~300mm across. They are static by this point, so placing them
+   * off the shared Z plane is safe; nothing simulates them any more.
+   */
+  function planTidy(entry) {
+    const c = entry.bag.center;
+    const rag = [...entry.contained].find((i) => i.spec.kind === 'washrag');
+    const standing = [...entry.contained]
+      .filter((i) => i !== rag)
+      .map((handle) => ({ handle, size: standingSize(handle.spec) }))
+      .sort((a, b) => b.size.y - a.size.y);
+
+    const rows = [standing.slice(0, Math.ceil(standing.length / 2)), standing.slice(Math.ceil(standing.length / 2))];
+    const rowDepth = rows.map((row) => Math.max(0, ...row.map((e) => e.size.z)));
+    const totalDepth = rowDepth[0] + ROW_GAP + rowDepth[1];
+    const floorY = c.y + RAG_FOLD_T;
+
+    const targets = [];
+    let z = c.z - totalDepth / 2;
+    rows.forEach((row, i) => {
+      const rowZ = z + rowDepth[i] / 2;
+      z += rowDepth[i] + ROW_GAP;
+      // Same equal-gaps packing the shelves use, so a row always reads as deliberate.
+      const used = row.reduce((sum, e) => sum + e.size.x, 0);
+      const packWidth = BAG.width * PACK_INSET;
+      const gap = (packWidth - used) / (row.length + 1);
+      let x = c.x - packWidth / 2 + gap;
+      for (const { handle, size } of row) {
+        targets.push({ handle, quat: size.quat, pos: new THREE.Vector3(x + size.x / 2, floorY + size.y / 2, rowZ) });
+        x += size.x + gap;
+      }
+    });
+
+    if (rag) targets.push({ handle: rag, quat: UPRIGHT, pos: new THREE.Vector3(c.x, c.y + RAG_FOLD_T / 2, c.z) });
+    return { t: 0, targets };
+  }
+
   /** Sealed bags reject latecomers: pop anything that isn't part of the set back out. */
   function ejectIntruders(entry) {
     const c = entry.bag.center;
@@ -111,6 +205,21 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     for (const entry of bags) {
       entry.bag.update(dt);
       if (entry.bag.state !== 'placed') continue;
+      // The order is done once the set is complete *and* the gift tag is on: that is when the
+      // bag gathers itself into a pouch and the contents stand up inside it. Up to here it is
+      // a plain box, which is what makes it packable in the first place.
+      if (entry.complete && entry.tag && !entry.finish && entry.bag.shrivel === 0) {
+        entry.finish = planTidy(entry);
+      }
+      if (entry.finish) {
+        const f = entry.finish;
+        f.t = Math.min(1, f.t + dt / FINISH_DURATION);
+        const e = 1 - (1 - f.t) ** 3;
+        entry.bag.setShrivel(e);
+        for (const { handle, pos, quat } of f.targets) handle.placeAt(pos, quat, e);
+        if (f.t >= 1) entry.finish = null;
+      }
+
       if (entry.sealed) {
         ejectIntruders(entry);
       } else if (trackContents(entry, dt)) {

@@ -121,6 +121,34 @@ function shade(color, amount) {
   return new THREE.Color(color).lerp(new THREE.Color(amount > 0 ? 0xffffff : 0x000000), Math.abs(amount));
 }
 
+// Sharpie-style outline: a black shell of the same geometry rendered back-faces-only,
+// pushed out by a constant thickness in every direction. It is parented to the mesh so it
+// inherits its position and rotation and scales along the geometry's own axes — a uniform
+// scale would thin the line out on a mesh's long axis and fatten it on a short one, which
+// on a bottle cap reads as a smudge rather than a pen stroke.
+//
+// One pen draws the whole scene, so INK is a world-space width rather than a fraction of
+// the item. The clamp is what keeps that honest on small parts: a 3.6mm line around a
+// 5.5mm toothpaste neck would swell it wider than the cap in front of it, so no shell may
+// grow a part by more than a tenth of its own narrowest dimension.
+export const INK = 0.0036;
+// The hull shell (BackSide, for solid items) and a plain black surface, for the places where
+// an inverted hull doesn't work: a flat card's border, and the bag's inked edges.
+export const OUTLINE_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
+export const INK_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x000000 });
+
+export function outline(mesh) {
+  mesh.geometry.computeBoundingBox();
+  const extent = new THREE.Vector3();
+  mesh.geometry.boundingBox.getSize(extent);
+  const axes = ['x', 'y', 'z'].filter((axis) => extent[axis] > 1e-6);
+  const thickness = Math.min(INK, 0.1 * Math.min(...axes.map((axis) => extent[axis])));
+  const shell = new THREE.Mesh(mesh.geometry, OUTLINE_MATERIAL);
+  shell.scale.set(...['x', 'y', 'z'].map((a) => (extent[a] > 1e-6 ? (extent[a] + 2 * thickness) / extent[a] : 1)));
+  mesh.add(shell);
+  return mesh;
+}
+
 function add(group, geometry, material, x = 0, y = 0, z = 0) {
   const m = new THREE.Mesh(geometry, material);
   m.position.set(x, y, z);
@@ -309,5 +337,9 @@ const builderFor = {
 export function createItemMesh(item) {
   const group = new THREE.Group();
   builders[builderFor[item.kind]](group, item);
+  // Outlining here rather than inside each builder means a new item kind is inked by
+  // default — and the shells are added after the fact, so a builder that measures what it
+  // has already placed still sees the true part sizes.
+  for (const mesh of [...group.children]) outline(mesh);
   return group;
 }

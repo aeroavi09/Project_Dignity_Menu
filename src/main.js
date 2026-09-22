@@ -63,6 +63,9 @@ function spawnItem(spec) {
       isHeld: () => rag.held,
       push: (vx, vy) => rag.push(vx, vy),
       reset: () => rag.reset(),
+      // `blend` is absolute progress 0..1; see softRag.placeAt. The rag ignores the target
+      // rotation -- a six-particle cloth has no orientation to set, it just lies flat.
+      placeAt: (pos, _quat, blend) => rag.placeAt(pos.x, pos.y, pos.z, blend),
       lock: () => {
         rag.lock();
         rag.mesh.userData.locked = true;
@@ -93,6 +96,13 @@ function spawnItem(spec) {
     push: (vx, vy) => {
       body.velocity.set(vx, vy, 0);
       body.wakeUp();
+    },
+    // Ease this item toward a pose. Used by the tidy-up when a bag is finished, which runs
+    // after lock() has made the body static -- moving a static body is just a teleport, so
+    // nothing here has to fight the solver.
+    placeAt: (pos, quat, blend) => {
+      body.position.lerp(pos, blend, body.position);
+      body.quaternion.slerp(quat, blend, body.quaternion);
     },
     // Once an item has settled in a bag it belongs to that bag: pinned in place and
     // no longer grabbable, so it can never come back out.

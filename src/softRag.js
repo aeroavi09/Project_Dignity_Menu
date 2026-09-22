@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { clampToRoom } from './softBodyBag.js';
+import { INK, OUTLINE_MATERIAL } from './scene.js';
 
 // A washrag is a chain of particles along X. Items are locked to one depth plane, so the cloth
 // only folds in the X/Y plane; its depth is purely visual (extruded along Z).
@@ -18,18 +19,35 @@ const DAMPING_PER_KG = 15.5;
 const MAX_STRETCH = 0.5;
 const MAX_SPEED = 4;
 
+// Triangles are wound so their normals face *out* of the ribbon. That was invisible while
+// the rag was the only thing drawn from this index — it is MeshStandardMaterial/DoubleSide,
+// which shades a back face off the flipped normal and looks fine either way — but the ink
+// shell below is BackSide, so a reversed winding would draw the shell's near face over the
+// rag and paint it solid black.
 function buildRibbonIndex() {
   const index = [];
   for (let j = 0; j < SAMPLES; j++) {
     for (let s = 0; s < 4; s++) {
       const a = j * 4 + s;
       const b = j * 4 + ((s + 1) % 4);
-      index.push(a, b, b + 4, a, b + 4, a + 4);
+      index.push(a, b + 4, b, a, a + 4, b + 4);
     }
   }
   const last = SAMPLES * 4;
-  index.push(0, 2, 1, 0, 3, 2, last, last + 1, last + 2, last, last + 2, last + 3);
+  index.push(0, 1, 2, 0, 2, 3, last, last + 2, last + 1, last, last + 3, last + 2);
   return index;
+}
+
+/** One cross-section of the ribbon: a rectangle `h` by `d`, `along` metres down the tangent. */
+function writeRing(array, o, point, tangent, h, d, along = 0) {
+  const nx = -tangent.y * h;
+  const ny = tangent.x * h;
+  const cx = point.x + tangent.x * along;
+  const cy = point.y + tangent.y * along;
+  array.set([cx + nx, cy + ny, point.z + d], o);
+  array.set([cx + nx, cy + ny, point.z - d], o + 3);
+  array.set([cx - nx, cy - ny, point.z - d], o + 6);
+  array.set([cx - nx, cy - ny, point.z + d], o + 9);
 }
 
 /** Soft washrag. `body` is a read-only proxy (centroid position/velocity) for containment checks. */
@@ -83,6 +101,20 @@ export function createSoftRag({ world, scene, item }) {
   mesh.castShadow = true;
   mesh.receiveShadow = true;
   scene.add(mesh);
+
+  // Ink outline. The rigid items get a scaled copy of their geometry (see scene.js), but the
+  // rag's shape is regenerated every frame, so instead of scaling it we re-sweep the same
+  // curve with a cross-section `ink` wider on each side. Same clamp as scene.js: the line may
+  // not exceed a tenth of the rag's narrowest dimension.
+  const ink = Math.min(INK, 0.1 * Math.min(THICKNESS, depth));
+  const shellGeometry = new THREE.BufferGeometry();
+  shellGeometry.setAttribute('position', new THREE.BufferAttribute(new Float32Array((SAMPLES + 1) * 12), 3));
+  shellGeometry.setIndex(buildRibbonIndex());
+  const shell = new THREE.Mesh(shellGeometry, OUTLINE_MATERIAL);
+  // The ribbon is built in world coordinates and `mesh` is never transformed, so parenting the
+  // shell to it costs nothing and gets it removed from the scene alongside the rag.
+  shell.frustumCulled = false;
+  mesh.add(shell);
 
   const controlPoints = particles.map(() => new THREE.Vector3());
   const curve = new THREE.CatmullRomCurve3(controlPoints, false, 'centripetal');
@@ -140,6 +172,22 @@ export function createSoftRag({ world, scene, item }) {
     }
   }
 
+  /**
+   * Fold the rag out flat, centred on (x, y, z). `blend` is absolute progress 0..1: each call
+   * moves the particles that fraction of the remaining distance, so driving it from 0 to 1
+   * over several frames eases the cloth into place and lands exactly on target at 1.
+   */
+  function placeAt(x, y, z, blend = 1) {
+    cursor = null;
+    particles.forEach((p, i) => {
+      p.position.x += (x - width / 2 + i * spacing - p.position.x) * blend;
+      p.position.y += (y - p.position.y) * blend;
+      p.position.z += (z - p.position.z) * blend;
+      p.velocity.setZero();
+      p.angularVelocity.setZero();
+    });
+  }
+
   /** Pin the rag where it lies — used once it has settled inside a bag. */
   function lock() {
     cursor = null;
@@ -159,6 +207,7 @@ export function createSoftRag({ world, scene, item }) {
     scene.remove(mesh);
     mesh.geometry.dispose();
     mesh.material.dispose();
+    shellGeometry.dispose(); // the outline material is shared scene-wide, so it is not disposed
   }
 
   function beginDrag(hit) {
@@ -195,6 +244,7 @@ export function createSoftRag({ world, scene, item }) {
     body.velocity.scale(1 / PARTICLES, body.velocity);
 
     const pos = geometry.attributes.position.array;
+    const shellPos = shellGeometry.attributes.position.array;
     const h = THICKNESS / 2;
     const d = depth / 2;
     for (let j = 0; j <= SAMPLES; j++) {
@@ -203,17 +253,18 @@ export function createSoftRag({ world, scene, item }) {
       curve.getTangent(t, tangent);
       tangent.z = 0;
       tangent.normalize();
-      const nx = -tangent.y * h;
-      const ny = tangent.x * h;
       const o = j * 12;
-      pos.set([point.x + nx, point.y + ny, point.z + d], o);
-      pos.set([point.x + nx, point.y + ny, point.z - d], o + 3);
-      pos.set([point.x - nx, point.y - ny, point.z - d], o + 6);
-      pos.set([point.x - nx, point.y - ny, point.z + d], o + 9);
+      writeRing(pos, o, point, tangent, h, d);
+      // Widening the cross-section alone would leave the rag's two short edges bare, so the
+      // shell's end rings also step `ink` off the ends of the curve.
+      const overhang = j === 0 ? -ink : j === SAMPLES ? ink : 0;
+      writeRing(shellPos, o, point, tangent, h + ink, d + ink, overhang);
     }
     geometry.attributes.position.needsUpdate = true;
     geometry.computeVertexNormals();
     geometry.computeBoundingSphere();
+    // The shell is unlit and never culled, so it needs neither normals nor a bounding sphere.
+    shellGeometry.attributes.position.needsUpdate = true;
   }
   update();
 
@@ -224,6 +275,7 @@ export function createSoftRag({ world, scene, item }) {
     reset,
     push,
     lock,
+    placeAt,
     dispose,
     get held() {
       return cursor !== null;
