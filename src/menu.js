@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { loadBlueberryFont } from './fonts.js';
 import { getSettings } from './settings.js';
+import { createInkRenderer } from './inkPass.js';
 
 // ===== 3D MENU =====
 // A self-contained 3D recreation of the "Fill a ♥ 4 kids" donation wall, shown before the
@@ -37,6 +38,8 @@ const TABLE_Y = 0.75;
 const TABLE_D = 0.6;
 const RAIL_Y = 3.18;
 const RAIL_Z = 0.5;
+// Track-light heads along the rail. Shared with the balloons, which keep clear of them.
+const SPOT_XS = [-3.3, -2.2, -1.1, 0, 1.1, 2.2, 3.3];
 
 const FONT_STACK = '"Patrick Hand", "Short Stack", "Comic Sans MS", "Segoe Print", cursive';
 const FONT_LINK = 'https://fonts.googleapis.com/css2?family=Patrick+Hand&display=swap';
@@ -326,7 +329,7 @@ function build(root, style, fontLink, wallFace, resolve) {
   const balloonMeshes = [];
   const bins = [];
   const spots = [];
-  const extras = { ledRing: null, ledLight: null, ribbon: null };
+  const extras = { ledRing: null, ledLight: null };
 
   buildRoom(scene);
   buildLighting(scene, spots, extras);
@@ -336,6 +339,9 @@ function build(root, style, fontLink, wallFace, resolve) {
   buildBins(scene, bins);
   const cushions = buildForeground(scene);
   const confetti = createConfetti(scene);
+  // Every object in the room gets a pen outline, matching the game's inked look. Confetti is
+  // left out: a line round a 3cm fleck would leave nothing but the line.
+  const ink = createInkRenderer(renderer, scene, camera, { exclude: [confetti.mesh] });
 
   // Park the cushions at the depth where the bottom of the frame cuts through them, so they
   // read as foreground clutter rather than props stranded in the middle of the floor.
@@ -422,6 +428,7 @@ function build(root, style, fontLink, wallFace, resolve) {
     placeCushions();
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    ink.setSize();
   }
 
   window.addEventListener('pointermove', onPointerMove);
@@ -524,14 +531,13 @@ function build(root, style, fontLink, wallFace, resolve) {
     const pulse = 0.5 + 0.5 * Math.sin((clock / 4) * Math.PI * 2);
     extras.ledRing.material.emissiveIntensity = 1.1 + pulse * 0.9;
     extras.ledLight.intensity = 0.8 + pulse * 0.6;
-    extras.ribbon.rotation.z = Math.sin(clock * 0.5) * 0.09;
 
-    renderer.render(scene, camera);
+    ink.render();
     raf = requestAnimationFrame(frame);
   }
 
   // Draw one frame synchronously so the room is on screen even before rAF ticks.
-  renderer.render(scene, camera);
+  ink.render();
   raf = requestAnimationFrame(frame);
 
   function onPlay() {
@@ -551,6 +557,7 @@ function build(root, style, fontLink, wallFace, resolve) {
     playBtn.removeEventListener('click', onPlay);
     disposeObject(scene);
     scene.clear();
+    ink.dispose();
     renderer.dispose();
     renderer.forceContextLoss();
     renderer.domElement.remove();
@@ -680,7 +687,7 @@ function createConfetti(scene) {
     mesh.instanceMatrix.needsUpdate = true;
   }
 
-  return { burst, update };
+  return { burst, update, mesh };
 }
 
 let popAudio = null;
@@ -829,7 +836,7 @@ function buildLighting(scene, spots, extras) {
     roughness: 0.45,
     metalness: 0.18,
   });
-  const xs = [-3.3, -2.2, -1.1, 0, 1.1, 2.2, 3.3];
+  const xs = SPOT_XS;
   const litIdx = new Set([1, 2, 4, 5]); // heads 2, 3, 5 and 6 are on
   const headGeo = new THREE.CylinderGeometry(0.06, 0.068, 0.15, 18);
   const lensGeo = new THREE.CircleGeometry(0.056, 18);
@@ -956,48 +963,106 @@ function spineY(t) {
   return 3.02 - 0.16 * Math.sin(Math.PI * t) + 0.16 * t;
 }
 
+// `count` is how many of each colour the layout asks for; placeBalloons() drops any with no
+// free spot, so these are tuned to land 36 on the wall: 7 pink, 9 lavender, 6 indigo, 6 yellow,
+// 4 orange, 4 magenta. Changing any count reshuffles the random layout for every later group.
 const BALLOON_ROLES = [
-  { color: COL.pink, count: 10, rough: 0.85, metal: 0, rMin: 0.19, rMax: 0.26, spans: [[0, 0.2], [0.78, 1]], spread: 0.26 },
-  { color: COL.lavender, count: 12, rough: 0.35, metal: 0.25, rMin: 0.14, rMax: 0.18, spans: [[0.06, 0.94]], spread: 0.24 },
-  { color: COL.indigo, count: 10, rough: 0.18, metal: 0.05, rMin: 0.15, rMax: 0.2, spans: [[0.36, 0.68]], spread: 0.21, bias: -0.13 },
-  { color: COL.yellow, count: 7, rough: 0.8, metal: 0, rMin: 0.13, rMax: 0.17, spans: [[0.18, 0.38], [0.58, 0.8]], spread: 0.22 },
-  { color: COL.orange, count: 3, rough: 0.6, metal: 0.05, rMin: 0.08, rMax: 0.105, spans: [[0.25, 0.75]], spread: 0.26 },
-  { color: COL.magenta, count: 3, rough: 0.6, metal: 0.05, rMin: 0.08, rMax: 0.105, spans: [[0.2, 0.85]], spread: 0.26 },
+  { color: COL.pink, count: 14, rough: 0.85, metal: 0, rMin: 0.19, rMax: 0.26, spans: [[0, 0.2], [0.78, 1]], spread: 0.26 },
+  { color: COL.lavender, count: 16, rough: 0.35, metal: 0.25, rMin: 0.14, rMax: 0.18, spans: [[0.06, 0.94]], spread: 0.24 },
+  { color: COL.indigo, count: 14, rough: 0.18, metal: 0.05, rMin: 0.15, rMax: 0.2, spans: [[0.36, 0.68]], spread: 0.21, bias: -0.13 },
+  { color: COL.yellow, count: 10, rough: 0.8, metal: 0, rMin: 0.13, rMax: 0.17, spans: [[0.18, 0.38], [0.58, 0.8]], spread: 0.22 },
+  { color: COL.orange, count: 5, rough: 0.6, metal: 0.05, rMin: 0.08, rMax: 0.105, spans: [[0.25, 0.75]], spread: 0.26 },
+  { color: COL.magenta, count: 5, rough: 0.6, metal: 0.05, rMin: 0.08, rMax: 0.105, spans: [[0.2, 0.85]], spread: 0.26 },
 ];
+
+// The band the garland hangs in. Balloons stay under the rail and its lamps, never *look* as if
+// they cross the rail (see balloonFitsBand), and keep clear of the painted text: above the heading (top ~2.45m) where it runs, x -0.90..1.41 plus
+// a margin for perspective, and elsewhere above the two small lines (top ~2.0m).
+const BALLOON_CEILING = RAIL_Y - 0.025 - 0.01; // underside of the rail, less a hair of air
+const BALLOON_FLOOR = 2.52;
+const BALLOON_FLOOR_SIDES = 2.1;
+const HEADING_X = [-1.05, 1.56];
+const BALLOON_Z = [0.03, 0.9]; // off the wall .. how far into the room the garland may reach
+// The menu camera at its lowest (1.5m less the 0.15 parallax dip) and nearest (camDistance's
+// floor). Seen from down here, anything in front of the rail projects higher than it really is.
+const EYE_Y = 1.35;
+const EYE_Z_MIN = 4.5;
+const BALLOON_X = [-3.05, 3.05];
+// A balloon at its fullest: drawn 1.08x taller than wide, bobbing up to 2cm, and swelling up to
+// ~10% as it overshoots blowing back up after a pop (5% on hover).
+const BALLOON_HALF_H = 1.08;
+const BALLOON_MAX_SWELL = 1.1;
+const BALLOON_BOB = 0.02;
+// Space kept between two balloons, allowing for their bobs being out of step.
+const BALLOON_GAP = 2 * BALLOON_BOB + 0.015;
+// Each lamp, stem to lens, as a keep-out column reaching 25cm below the rail (the tilted head's
+// lowest point is ~24cm down), wide enough to take in the head's bounding-box corners.
+const LAMP_R = 0.115;
+const LAMP_BOTTOM = RAIL_Y - 0.25;
+
+function balloonFitsBand(x, y, z, r) {
+  const halfH = r * BALLOON_HALF_H * BALLOON_MAX_SWELL + BALLOON_BOB;
+  const halfW = r * BALLOON_MAX_SWELL;
+  const overHeading = x + halfW > HEADING_X[0] && x - halfW < HEADING_X[1];
+  const floor = overHeading ? BALLOON_FLOOR : BALLOON_FLOOR_SIDES;
+  if (y + halfH > BALLOON_CEILING || y - halfH < floor) return false;
+  if (x - halfW < BALLOON_X[0] || x + halfW > BALLOON_X[1]) return false;
+  if (z - halfW < BALLOON_Z[0] || z + halfW > BALLOON_Z[1]) return false;
+  // A balloon forward of the rail must still read as under it: carry the sight line over its
+  // top back to the rail's depth and it has to pass beneath the rail there.
+  const front = z + halfW;
+  if (front > RAIL_Z) {
+    const topSeenAtRail = EYE_Y + (y + halfH - EYE_Y) * ((EYE_Z_MIN - RAIL_Z) / (EYE_Z_MIN - front));
+    if (topSeenAtRail > BALLOON_CEILING) return false;
+  }
+  if (y + halfH <= LAMP_BOTTOM) return true;
+  return SPOT_XS.every((lx) => Math.hypot(x - lx, z - RAIL_Z) >= halfW + LAMP_R);
+}
+
+/** Balloons are 1.08x taller than wide, so with y squashed by that factor each is a sphere. */
+function balloonsClear(a, x, y, z, r) {
+  const d = Math.hypot(a.x - x, (a.y - y) / BALLOON_HALF_H, a.z - z);
+  return d >= (a.r + r) * BALLOON_MAX_SWELL + BALLOON_GAP;
+}
+
+/**
+ * Hang every balloon clear of the rail, the lamps and every other balloon. Each is placed in
+ * turn, biggest first, at the free spot nearest where the garland's layout wanted it; one that
+ * finds no free spot anywhere near its place is left out. Nudging a random layout apart kept
+ * jamming against the lamps and the band, so this places rather than repairs: nothing can
+ * overlap, and the garland keeps its shape -- clusters of colour where the layout put them.
+ */
+function placeBalloons(wanted) {
+  const placed = [];
+  for (const b of [...wanted].sort((p, q) => q.r - p.r)) {
+    let best = null;
+    let bestScore = Infinity;
+    for (let dx = -1; dx <= 1; dx += 0.025) {
+      const x = b.x + dx;
+      for (let y = BALLOON_FLOOR_SIDES; y <= BALLOON_CEILING; y += 0.025) {
+        for (let z = BALLOON_Z[0]; z <= BALLOON_Z[1]; z += 0.04) {
+          const score = dx * dx + 0.5 * (y - b.y) ** 2 + 0.2 * (z - b.z) ** 2;
+          if (score >= bestScore) continue;
+          if (!balloonFitsBand(x, y, z, b.r)) continue;
+          if (!placed.every((a) => balloonsClear(a, x, y, z, b.r))) continue;
+          best = { x, y, z };
+          bestScore = score;
+        }
+      }
+    }
+    if (best) placed.push(Object.assign(b, best));
+  }
+  return placed;
+}
 
 function buildBalloons(scene, balloons, balloonMeshes, extras) {
   const rand = mulberry(20260922);
   const sphere = new THREE.SphereGeometry(1, 20, 14);
   const knotGeo = new THREE.ConeGeometry(0.5, 0.9, 8);
-  const total = BALLOON_ROLES.reduce((n, r) => n + r.count, 0);
 
-  const knots = new THREE.InstancedMesh(
-    knotGeo,
-    new THREE.MeshStandardMaterial({ roughness: 0.6 }),
-    total
-  );
-  knots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-  scene.add(knots);
-  extras.knots = knots;
-
-  let knotIndex = 0;
+  // Where the garland's layout would like each balloon, before it is fitted into the band.
+  const wanted = [];
   BALLOON_ROLES.forEach((role, groupIndex) => {
-    const mesh = new THREE.InstancedMesh(
-      sphere,
-      new THREE.MeshStandardMaterial({
-        color: 0xffffff,
-        roughness: role.rough,
-        metalness: role.metal,
-      }),
-      role.count
-    );
-    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    mesh.castShadow = true;
-    mesh.userData.kind = 'balloon';
-    mesh.userData.group = groupIndex;
-    scene.add(mesh);
-    balloonMeshes.push(mesh);
-
     const base = new THREE.Color(role.color);
     for (let i = 0; i < role.count; i++) {
       const span = role.spans[Math.floor(rand() * role.spans.length)];
@@ -1008,20 +1073,51 @@ function buildBalloons(scene, balloons, balloonMeshes, extras) {
       // Pushed saturation: ACES rolls colour off toward white as exposure climbs, so the
       // garland needs deeper base tints to stay candy-bright rather than pastel.
       const color = base.clone().offsetHSL(0, 0.12 + (rand() - 0.5) * 0.03, (rand() - 0.5) * 0.05);
-      mesh.setColorAt(i, color);
-      balloons.push({
-        mesh,
-        knotMesh: knots,
-        knotIndex: knotIndex++,
+      const z = 0.16 + rand() * 0.2 + r * 0.5;
+      wanted.push({
         group: groupIndex,
-        index: i,
         x: -3 + t * 5.95,
         y,
-        z: 0.16 + rand() * 0.2 + r * 0.5,
+        z,
         r,
         color,
         phase: rand() * Math.PI * 2,
         sway: rand() * Math.PI * 2,
+      });
+    }
+  });
+  const hung = placeBalloons(wanted);
+
+  const knots = new THREE.InstancedMesh(knotGeo, new THREE.MeshStandardMaterial({ roughness: 0.6 }), hung.length);
+  knots.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  scene.add(knots);
+  extras.knots = knots;
+
+  let knotIndex = 0;
+  BALLOON_ROLES.forEach((role, groupIndex) => {
+    const members = hung.filter((b) => b.group === groupIndex);
+    if (!members.length) return;
+    const mesh = new THREE.InstancedMesh(
+      sphere,
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: role.rough, metalness: role.metal }),
+      members.length
+    );
+    mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    mesh.castShadow = true;
+    mesh.userData.kind = 'balloon';
+    mesh.userData.group = groupIndex;
+    scene.add(mesh);
+    balloonMeshes.push(mesh);
+
+    members.forEach((b, i) => {
+      mesh.setColorAt(i, b.color);
+      knots.setColorAt(knotIndex, b.color);
+      balloons.push({
+        ...b,
+        mesh,
+        knotMesh: knots,
+        knotIndex: knotIndex++,
+        index: i,
         offset: 0,
         vel: 0,
         hover: 0,
@@ -1031,8 +1127,7 @@ function buildBalloons(scene, balloons, balloonMeshes, extras) {
         popT: 0,
         worldPos: new THREE.Vector3(),
       });
-      knots.setColorAt(knotIndex - 1, color);
-    }
+    });
     mesh.instanceColor.needsUpdate = true;
   });
   knots.instanceColor.needsUpdate = true;
@@ -1058,21 +1153,6 @@ function buildBalloons(scene, balloons, balloonMeshes, extras) {
   }
   knots.instanceMatrix.needsUpdate = true;
   knots.computeBoundingSphere();
-
-  // Curly ribbon off the right-hand end of the garland.
-  const pts = [];
-  for (let i = 0; i <= 48; i++) {
-    const u = i / 48;
-    const a = u * Math.PI * 6;
-    const rad = 0.055 * (1 - u * 0.45);
-    pts.push(new THREE.Vector3(1.92 + Math.cos(a) * rad, 2.92 - u * 0.5, 0.36 + Math.sin(a) * rad));
-  }
-  const ribbon = new THREE.Mesh(
-    new THREE.TubeGeometry(new THREE.CatmullRomCurve3(pts), 70, 0.006, 5, false),
-    new THREE.MeshStandardMaterial({ color: 0xf2f2f4, roughness: 0.4, metalness: 0.2 })
-  );
-  scene.add(ribbon);
-  extras.ribbon = ribbon;
 }
 
 function buildWallText(scene) {
@@ -1245,7 +1325,7 @@ const BIN_LAYOUT = [
   { x: -1.45, type: 'tub', w: 0.54, h: 0.38, note: '1' },
   { x: -0.85, type: 'tub', w: 0.54, h: 0.38, note: '2' },
   { x: -0.25, type: 'tub', w: 0.54, h: 0.38, note: '1' },
-  { x: 0.28, type: 'slant', w: 0.4, h: 0.3, note: null },
+  { x: 0.28, type: 'slant', w: 0.4, h: 0.3, note: '1' },
   { x: 0.74, type: 'slant', w: 0.4, h: 0.3, note: '1' },
   { x: 1.2, type: 'slant', w: 0.4, h: 0.3, note: '1' },
   { x: 1.73, type: 'tub', w: 0.54, h: 0.38, note: '1' },
@@ -1293,21 +1373,12 @@ function buildBins(scene, bins) {
     // A tub's front is its lathed wall, which has already pinched inward by this height; a
     // slanted bin's is a flat plate. Both notes have to land just proud of that surface.
     const faceZ = spec.type === 'tub' ? (spec.w / 2) * 0.76 * 0.88 + 0.008 : 0.186;
-    if (spec.note) {
-      const note = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.1, 0.1),
-        new THREE.MeshStandardMaterial({ map: noteTexture(spec.note), roughness: 0.9 })
-      );
-      note.position.set(0, spec.h * 0.45, faceZ);
-      group.add(note);
-    } else {
-      const card = new THREE.Mesh(
-        new THREE.PlaneGeometry(0.15, 0.08),
-        new THREE.MeshStandardMaterial({ color: 0xfdfdfb, roughness: 0.9 })
-      );
-      card.position.set(0, spec.h * 0.5, faceZ);
-      group.add(card);
-    }
+    const note = new THREE.Mesh(
+      new THREE.PlaneGeometry(0.1, 0.1),
+      new THREE.MeshStandardMaterial({ map: noteTexture(spec.note), roughness: 0.9 })
+    );
+    note.position.set(0, spec.h * 0.45, faceZ);
+    group.add(note);
 
     // Each container holds one kind of donation, standing tall enough to clear the rim.
     const kind = BIN_ITEMS[i];

@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { INK } from './scene.js';
 
 /**
  * Intro bubble transition: fills the view with animated soap bubbles that rise and clear.
@@ -21,6 +22,24 @@ export function createBubbleTransition(scene, camera, { reduceMotion = false } =
   });
 
   const geometry = new THREE.IcosahedronGeometry(1, 4);
+
+  // Ink. A bubble is see-through, so an inverted hull would show through the film and blacken
+  // the whole thing; instead each gets a flat black ring laid on its silhouette, which for a
+  // sphere is exactly a circle wherever the camera is (see placeRing).
+  const inkMaterial = new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, depthWrite: false });
+  const toCamera = new THREE.Vector3();
+
+  function placeRing(bubble) {
+    const ring = bubble.userData.ring;
+    const r = bubble.scale.x;
+    toCamera.subVectors(camera.position, bubble.position);
+    const d = toCamera.length();
+    // The sight lines that graze a sphere touch it on a circle of radius r*sqrt(1 - r²/d²),
+    // sitting r²/d in front of the centre, square to the line of sight.
+    ring.position.copy(bubble.position).addScaledVector(toCamera, (r * r) / (d * d));
+    ring.scale.setScalar(r * Math.sqrt(1 - (r * r) / (d * d)));
+    ring.lookAt(camera.position);
+  }
 
   // Position bubbles to fill the camera view
   for (let i = 0; i < bubbleCount; i++) {
@@ -50,8 +69,14 @@ export function createBubbleTransition(scene, camera, { reduceMotion = false } =
     bubble.userData.wobbleAmount = Math.random() * 0.05;
     bubble.userData.wobblePhase = Math.random() * Math.PI * 2;
 
+    // Unit inner radius with the pen width expressed against this bubble's size, so scaling
+    // the ring onto the silhouette leaves the line one INK wide.
+    const ring = new THREE.Mesh(new THREE.RingGeometry(1, 1 + INK / scale, 48), inkMaterial.clone());
+    bubble.userData.ring = ring;
+    placeRing(bubble);
+
     bubbles.push(bubble);
-    scene.add(bubble);
+    scene.add(bubble, ring);
   }
 
   // Return a promise that resolves when all bubbles have cleared
@@ -63,8 +88,11 @@ export function createBubbleTransition(scene, camera, { reduceMotion = false } =
     let last = startTime;
 
     function removeBubble(i) {
-      scene.remove(bubbles[i]);
+      const { ring } = bubbles[i].userData;
+      scene.remove(bubbles[i], ring);
       bubbles[i].material.dispose();
+      ring.geometry.dispose();
+      ring.material.dispose();
       bubbles.splice(i, 1);
     }
 
@@ -72,6 +100,7 @@ export function createBubbleTransition(scene, camera, { reduceMotion = false } =
       while (bubbles.length) removeBubble(bubbles.length - 1);
       geometry.dispose();
       bubbleMaterial.dispose();
+      inkMaterial.dispose();
       resolve();
     }
 
@@ -96,7 +125,10 @@ export function createBubbleTransition(scene, camera, { reduceMotion = false } =
 
         // Fade each bubble out over the top half of the screen.
         const centerY = probe.copy(bubble.position).project(camera).y;
-        bubble.material.opacity = baseOpacity * THREE.MathUtils.clamp(1 - centerY, 0, 1);
+        const fade = THREE.MathUtils.clamp(1 - centerY, 0, 1);
+        bubble.material.opacity = baseOpacity * fade;
+        d.ring.material.opacity = fade;
+        placeRing(bubble);
 
         // Cleared once the bubble's lowest point has risen past the top edge of the screen.
         probe.copy(bubble.position).y -= bubble.scale.y;
