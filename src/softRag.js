@@ -199,12 +199,17 @@ export function createSoftRag({ world, scene, item }) {
     }
   }
 
-  function dispose() {
+  /** Take the rag out of the simulation but leave its mesh as-is, frozen in its last shape. */
+  function detach() {
     cursor = null;
     world.removeEventListener('postStep', onPostStep);
     for (const link of links) world.removeConstraint(link);
     for (const p of particles) world.removeBody(p);
-    scene.remove(mesh);
+  }
+
+  function dispose() {
+    detach();
+    mesh.removeFromParent();
     mesh.geometry.dispose();
     mesh.material.dispose();
     shellGeometry.dispose(); // the outline material is shared scene-wide, so it is not disposed
@@ -276,6 +281,7 @@ export function createSoftRag({ world, scene, item }) {
     push,
     lock,
     placeAt,
+    detach,
     dispose,
     get held() {
       return cursor !== null;

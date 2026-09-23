@@ -108,7 +108,9 @@ export function createTagSystem({ world, scene, camera, domElement, drag, pickab
     scene.add(mesh);
     pickables.push(mesh);
 
-    looseTags.push({ mesh, body, settle: 0, state: 'loose' });
+    const t = { mesh, body, settle: 0, state: 'loose' };
+    looseTags.push(t);
+    return t;
   }
 
   // Widest point of the pouch, and where on it the tag sits. TAG_V is low enough to be on the
@@ -201,20 +203,44 @@ export function createTagSystem({ world, scene, camera, domElement, drag, pickab
 
       const target = findAttachTarget(t.body.position);
       t.settle = target && t.body.velocity.length() < SETTLE_SPEED ? t.settle + dt : 0;
-      if (target && t.settle >= SETTLE_TIME) {
-        const c = target.bag.center;
-        t.fromPos = t.mesh.position.clone();
-        t.fromQuat = t.mesh.quaternion.clone();
-        t.toPos = lerpPos.set(c.x, c.y + TAG_V * BAG.height, c.z + tagFrontZ()).clone();
-        t.toQuat = new THREE.Quaternion();
-        t.entry = target;
-        t.state = 'attaching';
-        t.snapT = 0;
-        world.removeBody(t.body);
-        pickables.splice(pickables.indexOf(t.mesh), 1);
-      }
+      if (target && t.settle >= SETTLE_TIME) beginAttach(t, target);
     }
   }
 
-  return { update };
+  /** Start a loose tag flying onto a complete bag's front. */
+  function beginAttach(t, target) {
+    const c = target.bag.center;
+    t.fromPos = t.mesh.position.clone();
+    t.fromQuat = t.mesh.quaternion.clone();
+    t.toPos = lerpPos.set(c.x, c.y + TAG_V * BAG.height, c.z + tagFrontZ()).clone();
+    t.toQuat = new THREE.Quaternion();
+    t.entry = target;
+    t.state = 'attaching';
+    t.snapT = 0;
+    world.removeBody(t.body);
+    pickables.splice(pickables.indexOf(t.mesh), 1);
+  }
+
+  /** Make a tag from `canvas` and send it straight onto `entry`, skipping the drag. */
+  function attachNew(entry, canvas) {
+    const t = spawnTag(canvas);
+    t.mesh.position.copy(t.body.position);
+    beginAttach(t, entry);
+  }
+
+  /** Remove an attached tag for good, once its bag has been carried away. */
+  function disposeTag(t) {
+    const i = looseTags.indexOf(t);
+    if (i !== -1) looseTags.splice(i, 1);
+    t.mesh.removeFromParent();
+    const [edge, , , , face] = t.mesh.material;
+    face.map.dispose();
+    face.dispose();
+    edge.dispose();
+    t.mesh.traverse((o) => o.geometry.dispose());
+    // The border shares the scene-wide ink material; only the ring's is the tag's own.
+    for (const child of t.mesh.children) if (child.material !== INK_MATERIAL) child.material.dispose();
+  }
+
+  return { update, disposeTag, attachNew };
 }

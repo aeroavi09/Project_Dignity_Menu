@@ -28,6 +28,7 @@ npm run build     # outputs to dist/
 - `bottleFlip.js` / `throwIn.js` — the achievement watchers, one per easter egg. Each is polled from the frame loop and calls `achievements.unlock(id)`. They observe existing state (`drag.held`, `bags.holds`) rather than requiring hooks in the systems they watch.
 - `tagGenerator.js` / `tagPopup.js` / `tags.js` — gift tag mechanic: click the generator to open a draw/text popup (only once some bag is complete and still untagged — until then the click does nothing and the hover label says so), finished tag becomes a normal pickable, snaps onto a completed bag and grows to `TAG_ATTACH_SCALE` as it lands. The card is a thin box, not a plane, so it matches its 8mm collider and has edges for its ink border to sit around; only the two large faces carry the drawing.
 - `bubbles.js`, `title.js`, `hoverLabel.js` — cosmetic: intro transition, title card, hover tooltips + world-anchored labels (checkmarks etc).
+- `mia.js` — Mia, a Mixamo-rigged character (FBX clips in `public/models/`) who collects each finished bag: walks in from the right, reaches, lifts it, turns, carries it off frame. Visual only, no physics body. Takes the bag via `bags.takeAway(entry)` and each item via main.js's `carryAway(handle)`, which pulls it out of the simulation but leaves its mesh for her to move; she calls `destroy()`/`bag.dispose()`/`tags.disposeTag()` once off screen.
 
 ## Bag lifecycle
 
@@ -37,6 +38,7 @@ Four states, and the transitions matter more than the code makes obvious:
 2. **Complete** — the frame the bag holds one of every label in `required`. This is the commit point: `entry.sealed` is set, and every contained item is `lock()`ed (body → static, `userData.locked` → true). Nothing comes back out.
 3. **Sealed** — contents are frozen, `trackContents` is skipped entirely, and anything lowered in afterwards is shoved back out by `ejectIntruders`. The bag is still a **box** here: that is what makes it packable, and it stays one for every stage above.
 4. **Finished** — the frame a sealed bag also has a gift tag on it (`entry.complete && entry.tag`). `planTidy()` runs once and the bag spends `FINISH_DURATION` shrivelling from box to pouch while its contents stand themselves up inside it: upright, tallest along the back, all of it on the folded washrag. A single animation, so the bag looks like it is drawing the order together.
+5. **Carried off** — once the shrivel is done (`bags.isFinished`), Mia comes for it. `takeAway` drops its collider, checkmark and list entry (freeing the table spot); its items are flagged `gone`, which restock treats like "still in a bag" and refills the slot.
 
 Notes on the tidy, since they are not obvious from the code:
 
@@ -48,6 +50,8 @@ Notes on the tidy, since they are not obvious from the code:
 The restock button never reclaims an item from a bag at any stage — the slot gets a freshly spawned replacement instead, and an item that left a bag before it sealed is despawned on the next press so repeat presses can't accumulate duplicates.
 
 ## Gotchas
+
+- **Mia's un-posed bind mesh lies about where her feet are.** It is centred on the origin (y ≈ −0.95…0.95 in rig units), but every clip poses her standing *on* the origin, so the root belongs at y = 0. Offsetting it from `Box3.setFromObject` on the loaded model floated her half a metre up. Measure skinned vertices after `mixer.setTime()` (`mesh.getVertexPosition`) — `Box3` ignores skinning. Two more from the same export: its material loads with a black diffuse colour and poor normals (so she uses an unlit `MeshBasicMaterial`), and each clip's hips carry baked travel and heading that disagree between clips, so `pinRoot()` strips them and the controller drives the root instead.
 
 - **Asset URLs at runtime must use `import.meta.env.BASE_URL`, never a hardcoded absolute path.** GitHub Pages serves this from a subpath (`/Project_Dignity/`); anything built as a template string injected via `<style>`/`<script>` at runtime (not a real `.css`/`.html` file) bypasses Vite's own path rewriting. `title.js`'s font-face is the reference example — bit us once already (font silently fell back to a system font in production, worked fine locally).
 - `vite.config.js`'s `base` is derived automatically from `GITHUB_REPOSITORY` at build time — don't hardcode it.
@@ -66,6 +70,8 @@ The restock button never reclaims an item from a bag at any stage — the slot g
 - Physics step is fixed at 1/240s (`FIXED_DT` in `physics.js`) because thin items (lip balm, toothbrush) tunnel through 3cm shelf boards at larger steps.
 
 ## Testing physics/gameplay changes
+
+**Shortcut: type `chellito` anywhere in the game** (not in a text field) to get a finished bag: it lands on the first free table spot with one free copy of every item sealed in and a gift tag attached, then runs the normal finish → counter → Mia pickup. If the table is full or an item has no free copy it does nothing (console warning) — press Restock. See `cheats.js` / `bags.autoPack()`. Automated browser "typing" doesn't fire keydown here, so in a test script dispatch `KeyboardEvent('keydown', { key, bubbles: true })` on `document.body` instead.
 
 Prefer a **headless Node script** driving `world.step()` directly over browser automation for anything involving the spring/physics loop. Automated browser tabs in this environment are frequently not OS-focused, which means `document.hidden` is true and `requestAnimationFrame` — which the entire game loop runs on — doesn't fire, regardless of how long you wait. Screenshots still render (CDP forces a frame for capture) so visual/UI checks work fine in-browser; anything time-dependent (drag settling, bag snapping, arrow animations) does not, and will silently appear frozen. A minimal DOM stub (`document.createElement` returning a plain object with `style`/`classList`/`addEventListener`) is enough to run `bags.js`/`tags.js`/`softRag.js` headlessly — see prior test scripts in scratch space for the pattern if reconstructing one.
 

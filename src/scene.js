@@ -137,6 +137,21 @@ export const INK = 0.0036;
 export const OUTLINE_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x000000, side: THREE.BackSide });
 export const INK_MATERIAL = new THREE.MeshBasicMaterial({ color: 0x000000 });
 
+/**
+ * Free everything createItemMesh() made. An item is a Group of parts, each with an outline
+ * shell, so there is no single geometry to dispose; the two ink materials are shared by every
+ * item in the scene and must survive.
+ */
+export function disposeItemMesh(root) {
+  root.traverse((obj) => {
+    if (!obj.isMesh) return;
+    obj.geometry.dispose();
+    for (const m of Array.isArray(obj.material) ? obj.material : [obj.material]) {
+      if (m !== OUTLINE_MATERIAL && m !== INK_MATERIAL) m.dispose();
+    }
+  });
+}
+
 export function outline(mesh) {
   mesh.geometry.computeBoundingBox();
   const extent = new THREE.Vector3();

@@ -185,24 +185,6 @@ function signTexture() {
   return canvasTexture(canvas);
 }
 
-function cushionTexture(base, accent) {
-  const canvas = makeCanvas(128, 128);
-  const g = canvas.getContext('2d');
-  g.fillStyle = base;
-  g.fillRect(0, 0, 128, 128);
-  g.strokeStyle = accent;
-  g.lineWidth = 8;
-  for (let i = -128; i < 256; i += 32) {
-    g.beginPath();
-    g.moveTo(i, 0);
-    g.lineTo(i + 128, 128);
-    g.stroke();
-  }
-  const tex = canvasTexture(canvas);
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  return tex;
-}
-
 /** Original heart: two bezier lobes into a point, extruded and bevelled. */
 function heartGeometry(height) {
   const s = new THREE.Shape();
@@ -334,16 +316,7 @@ function build(root, style, fontLink, wallFace, resolve) {
   buildWallText(scene);
   buildTables(scene);
   buildBins(scene, bins);
-  const cushions = buildForeground(scene);
-
-  // Park the cushions at the depth where the bottom of the frame cuts through them, so they
-  // read as foreground clutter rather than props stranded in the middle of the floor.
-  function placeCushions() {
-    const down = THREE.MathUtils.degToRad(25) - Math.atan2(camTarget.y - camBase.y, camBase.z);
-    const d = (camBase.y - 0.28) / Math.tan(down);
-    for (const cushion of cushions) cushion.position.z = camBase.z - d;
-  }
-  placeCushions();
+  buildForeground(scene);
 
   // --- interaction state -------------------------------------------------
   const pointer = new THREE.Vector2(0, 0);
@@ -401,7 +374,6 @@ function build(root, style, fontLink, wallFace, resolve) {
     camera.aspect = window.innerWidth / window.innerHeight;
     camBase.z = camDistance(camera.aspect);
     camera.position.z = camBase.z;
-    placeCushions();
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
   }
@@ -1318,26 +1290,6 @@ function buildForeground(scene) {
     lid.position.set(-3.65, 0.33 + i * 0.35, 1.05);
     scene.add(lid);
   }
-
-  // Cushions sit just inside the near clip of the shot so the frame crops them, the way the
-  // photo does. Their depth is re-pinned whenever the camera backs off on a resize.
-  const orange = new THREE.Mesh(
-    new THREE.BoxGeometry(1.1, 0.4, 0.8),
-    new THREE.MeshStandardMaterial({ map: cushionTexture('#e8761f', '#23201c'), roughness: 0.9 })
-  );
-  orange.position.set(1.85, 0.2, 0);
-  orange.rotation.y = -0.35;
-  scene.add(orange);
-
-  const navy = new THREE.Mesh(
-    new THREE.BoxGeometry(1.2, 0.36, 0.7),
-    new THREE.MeshStandardMaterial({ map: cushionTexture('#1d2a4a', '#c6531f'), roughness: 0.9 })
-  );
-  navy.position.set(-0.9, 0.18, 0);
-  navy.rotation.y = 0.2;
-  scene.add(navy);
-
-  return [orange, navy];
 }
 
 const MENU_CSS = `
