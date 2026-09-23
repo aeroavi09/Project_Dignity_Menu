@@ -335,6 +335,7 @@ function build(root, style, fontLink, wallFace, resolve) {
   buildTables(scene);
   buildBins(scene, bins);
   const cushions = buildForeground(scene);
+  const confetti = createConfetti(scene);
 
   // Park the cushions at the depth where the bottom of the frame cuts through them, so they
   // read as foreground clutter rather than props stranded in the middle of the floor.
@@ -374,20 +375,37 @@ function build(root, style, fontLink, wallFace, resolve) {
     if (!hits.length) return null;
     const hit = hits[0];
     const kind = hit.object.userData.kind;
-    if (kind === 'balloon') {
-      const group = hit.object.userData.group;
-      return { kind, target: balloons.find((b) => b.group === group && b.index === hit.instanceId) };
+    for (const hit of hits) {
+      const kind = hit.object.userData.kind;
+      if (kind === 'balloon') {
+        const group = hit.object.userData.group;
+        const b = balloons.find((b) => b.group === group && b.index === hit.instanceId);
+        // A popped balloon is shrunk to nothing but can still catch a ray; look past it.
+        if (b.popped) continue;
+        return { kind, target: b };
+      }
+      if (kind === 'bin') return { kind, target: bins[hit.object.userData.index] };
+      if (kind === 'spot') return { kind, target: spots[hit.object.userData.index] };
+      return null;
     }
-    if (kind === 'bin') return { kind, target: bins[hit.object.userData.index] };
-    if (kind === 'spot') return { kind, target: spots[hit.object.userData.index] };
     return null;
+  }
+
+  function popBalloon(b) {
+    b.popped = true;
+    b.popT = 0;
+    b.hoverTarget = 0;
+    if (hovered === b) hovered = null;
+    renderer.domElement.style.cursor = 'default';
+    confetti.burst(b.worldPos, b.color);
+    playPop();
   }
 
   function onPointerDown() {
     if (closing) return;
     const found = pick();
     if (!found) return;
-    if (found.kind === 'balloon') found.target.vel += 1.9;
+    if (found.kind === 'balloon') popBalloon(found.target);
     if (found.kind === 'bin') found.target.vel += 1.35;
     if (found.kind === 'spot') toggleSpot(found.target);
   }
@@ -457,8 +475,16 @@ function build(root, style, fontLink, wallFace, resolve) {
       b.offset += b.vel * dt;
       const bob = reduceMotion ? 0 : Math.sin(clock * 0.85 + b.phase) * 0.02;
       const sway = reduceMotion ? 0 : Math.sin(clock * 0.62 + b.sway) * 0.052;
-      const s = b.r * (1 + b.hover * 0.05);
+      let s = b.r * (1 + b.hover * 0.05);
+      if (b.popped) {
+        // Gone for a while, then it blows back up so the garland is never left bare.
+        b.popT += dt;
+        const grow = Math.min(1, Math.max(0, (b.popT - REGROW_DELAY) / REGROW_TIME));
+        if (grow >= 1) b.popped = false;
+        s *= Math.max(1e-4, easeOutBack(grow));
+      }
       dummy.position.set(b.x, b.y + bob + b.offset, b.z);
+      b.worldPos.copy(dummy.position);
       dummy.rotation.set(0, 0, sway);
       dummy.scale.set(s, s * 1.08, s);
       dummy.updateMatrix();
@@ -476,6 +502,7 @@ function build(root, style, fontLink, wallFace, resolve) {
     }
     for (const mesh of balloonMeshes) mesh.instanceMatrix.needsUpdate = true;
     extras.knots.instanceMatrix.needsUpdate = true;
+    confetti.update(dt);
 
     for (const bin of bins) {
       bin.hover += (bin.hoverTarget - bin.hover) * Math.min(1, dt * 9);
@@ -536,6 +563,151 @@ function build(root, style, fontLink, wallFace, resolve) {
 }
 
 const WHITE = new THREE.Color(0xffffff);
+
+// ----- popping balloons -----
+const REGROW_DELAY = 8; // s a popped balloon stays gone
+const REGROW_TIME = 0.7; // s to blow back up
+
+function easeOutBack(t) {
+  const c = 1.7;
+  return 1 + (c + 1) * (t - 1) ** 3 + c * (t - 1) ** 2;
+}
+
+const CONFETTI_MAX = 480;
+const CONFETTI_PER_POP = 70;
+const CONFETTI_GRAVITY = 2.4; // m/s², lighter than real: paper drifts
+const CONFETTI_DRAG = 2.6; // 1/s
+const CONFETTI_REST = 4; // s a piece lies where it landed before shrinking away
+const CONFETTI_FADE = 0.8; // s
+const CONFETTI_COLORS = [COL.pink, COL.lavender, COL.indigo, COL.yellow, COL.orange, COL.magenta, COL.teal, 0xffffff];
+
+/** Where a falling piece comes to rest: one of the three table tops, or the floor. */
+function groundAt(x, z) {
+  const onTable = Math.abs(z - 0.35) <= TABLE_D / 2 && [-2.4, 0, 2.4].some((cx) => Math.abs(x - cx) <= 1.2);
+  return (onTable ? TABLE_Y + 0.015 : 0) + 0.002;
+}
+
+/**
+ * A fixed pool of paper flecks drawn as one InstancedMesh. A burst claims the oldest free
+ * slots; each piece is blown outward, flutters down under light gravity and heavy air drag,
+ * lies flat where it lands, then shrinks away.
+ */
+function createConfetti(scene) {
+  const mesh = new THREE.InstancedMesh(
+    new THREE.PlaneGeometry(0.03, 0.018),
+    new THREE.MeshStandardMaterial({ roughness: 0.7, side: THREE.DoubleSide }),
+    CONFETTI_MAX
+  );
+  mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+  mesh.frustumCulled = false; // the pieces move far from wherever the bounds were computed
+  scene.add(mesh);
+
+  const dummy = new THREE.Object3D();
+  const color = new THREE.Color();
+  const pieces = Array.from({ length: CONFETTI_MAX }, () => ({
+    alive: false,
+    pos: new THREE.Vector3(),
+    vel: new THREE.Vector3(),
+    rot: new THREE.Euler(),
+    spin: new THREE.Vector3(),
+    flutter: 0,
+    landed: -1, // seconds since landing, -1 while airborne
+  }));
+  let next = 0;
+
+  for (let i = 0; i < CONFETTI_MAX; i++) {
+    dummy.scale.setScalar(0);
+    dummy.updateMatrix();
+    mesh.setMatrixAt(i, dummy.matrix);
+    mesh.setColorAt(i, color.set(0xffffff));
+  }
+
+  function burst(origin, balloonColor) {
+    for (let n = 0; n < CONFETTI_PER_POP; n++) {
+      const i = next;
+      next = (next + 1) % CONFETTI_MAX;
+      const p = pieces[i];
+      p.alive = true;
+      p.landed = -1;
+      // Scatter from the balloon's skin, not its centre, and blow outward, a little upward.
+      const dir = new THREE.Vector3(Math.random() * 2 - 1, Math.random() * 2 - 1, Math.random() * 2 - 1).normalize();
+      p.pos.copy(origin).addScaledVector(dir, 0.08);
+      p.vel.copy(dir).multiplyScalar(1.2 + Math.random() * 1.6);
+      p.vel.y += 0.8;
+      p.rot.set(Math.random() * 6.28, Math.random() * 6.28, Math.random() * 6.28);
+      p.spin.set(Math.random() * 16 - 8, Math.random() * 16 - 8, Math.random() * 16 - 8);
+      p.flutter = Math.random() * 6.28;
+      // About a third of the flecks match the balloon, the rest are the party mix.
+      if (Math.random() < 0.35) color.copy(balloonColor);
+      else color.set(CONFETTI_COLORS[Math.floor(Math.random() * CONFETTI_COLORS.length)]);
+      mesh.setColorAt(i, color);
+    }
+    mesh.instanceColor.needsUpdate = true;
+  }
+
+  function update(dt) {
+    for (let i = 0; i < CONFETTI_MAX; i++) {
+      const p = pieces[i];
+      if (!p.alive) continue;
+      let scale = 1;
+      if (p.landed < 0) {
+        p.vel.y -= CONFETTI_GRAVITY * dt;
+        p.vel.multiplyScalar(Math.max(0, 1 - CONFETTI_DRAG * dt));
+        p.flutter += dt * 7;
+        p.pos.addScaledVector(p.vel, dt);
+        p.pos.x += Math.sin(p.flutter) * 0.12 * dt; // side-to-side drift as it falls
+        p.rot.x += p.spin.x * dt;
+        p.rot.y += p.spin.y * dt;
+        p.rot.z += p.spin.z * dt;
+        const floor = groundAt(p.pos.x, p.pos.z);
+        if (p.pos.y <= floor) {
+          p.pos.y = floor;
+          p.landed = 0;
+          p.rot.set(-Math.PI / 2, 0, p.rot.z); // settle flat
+        }
+      } else {
+        p.landed += dt;
+        const fade = (p.landed - CONFETTI_REST) / CONFETTI_FADE;
+        if (fade >= 1) p.alive = false;
+        scale = p.alive ? 1 - Math.max(0, fade) : 0;
+      }
+      dummy.position.copy(p.pos);
+      dummy.rotation.copy(p.rot);
+      dummy.scale.setScalar(scale);
+      dummy.updateMatrix();
+      mesh.setMatrixAt(i, dummy.matrix);
+    }
+    mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  return { burst, update };
+}
+
+let popAudio = null;
+
+/** A short synthesized pop: a burst of noise with a fast decay. Honors the SFX setting. */
+function playPop() {
+  if (!getSettings().sfx) return;
+  try {
+    popAudio ??= new AudioContext();
+    const ctx = popAudio;
+    const len = Math.floor(ctx.sampleRate * 0.12);
+    const buffer = ctx.createBuffer(1, len, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * Math.exp(-i / (ctx.sampleRate * 0.012));
+    const src = ctx.createBufferSource();
+    src.buffer = buffer;
+    const filter = ctx.createBiquadFilter();
+    filter.type = 'lowpass';
+    filter.frequency.value = 2400;
+    const gain = ctx.createGain();
+    gain.gain.value = 0.5;
+    src.connect(filter).connect(gain).connect(ctx.destination);
+    src.start();
+  } catch {
+    // No audio available; the pop is still visible.
+  }
+}
 
 // Meters of wall that must stay in frame. On a narrow window the camera backs off rather
 // than cropping the garland and the bins out of the shot; the clamp stops it retreating so
@@ -855,6 +1027,9 @@ function buildBalloons(scene, balloons, balloonMeshes, extras) {
         hover: 0,
         hoverTarget: 0,
         hoverDirty: false,
+        popped: false,
+        popT: 0,
+        worldPos: new THREE.Vector3(),
       });
       knots.setColorAt(knotIndex - 1, color);
     }
