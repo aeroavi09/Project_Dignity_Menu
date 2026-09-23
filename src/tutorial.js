@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { loadBlueberryFont } from './fonts.js';
+import { createVoice } from './voice.js';
 
 // First-visit tutorial: Mia walks the player through the kit in a click-through speech
 // bubble, spotlighting each object in the room with an arrow from the bubble. Same pattern as
@@ -8,20 +9,36 @@ import { loadBlueberryFont } from './fonts.js';
 
 const STORAGE_KEY = 'toiletry-shelf:tutorial-seen';
 
+// Mia's voiceover: one recording of all six lines, each step playing its own stretch of it.
+// The [start, end] times (seconds) sit in the silences between lines, found by measuring the
+// recording's loudness and matching the pauses to the script -- she also pauses mid-line
+// (after "soap!", "for?" and "card,"), so the longest silences alone don't mark the lines.
+// Re-recording means re-measuring these.
+const VOICE_URL = `${import.meta.env.BASE_URL}audio/mia-tutorial.mp3`;
+
 // `target` names an entry in the `targets` map runTutorial() is given; steps without one
 // dim the room with no spotlight.
 const STEPS = [
-  { text: 'Click on each picture to fill a Project Dignity WeCare Kit.' },
+  { text: 'Drag each item to fill a Project Dignity WeCare Kit.', voice: [0.13, 3.28] },
   // The room has no washer, dryer or bath towel to point at, so this one is text only.
-  { text: "Kids who are homeless don't have washers, dryers or bath towels" },
-  { text: "We can't forget the soap! Eddie needs soap to wash his clothes.", target: 'soap' },
-  { text: 'Guess what eddie uses this wash cloth for? To dry himself off after he showers.', target: 'washcloth' },
+  { text: "Kids who are homeless don't have washers, dryers or bath towels", voice: [3.97, 8.12] },
+  { text: "We can't forget the soap! Eddie needs soap to wash his clothes.", target: 'soap', voice: [8.61, 12.3] },
+  {
+    text: 'Guess what Eddie uses this wash cloth for? To dry himself off after he showers, instead of a big bath towel.',
+    target: 'washcloth',
+    voice: [12.91, 19.82],
+  },
   // The wash cloth is what the kit packs in place of a towel, so it's what this points at.
   {
     text: 'Wet bath towels are too big to put in a backpack and they can get school supplies wet and moldy',
     target: 'washcloth',
+    voice: [20.15, 25.86],
   },
-  { text: "Write on the card, 'Have a sweet day, from First name', and add some drawings", target: 'card' },
+  {
+    text: "Write on the card, 'Have a sweet day, from First name', and add some drawings",
+    target: 'card',
+    voice: [26.25, 31.3],
+  },
 ];
 
 export function hasSeenTutorial() {
@@ -162,12 +179,14 @@ export function runTutorial({ camera, domElement, portrait, targets }) {
       face.style.backgroundImage = `url(${url})`;
     });
 
+    const voice = createVoice(VOICE_URL);
     let step = 0;
     let raf = 0;
     let done = false;
 
     function show() {
       text.textContent = STEPS[step].text;
+      voice.play(STEPS[step].voice);
       count.textContent = `${step + 1} / ${STEPS.length}`;
     }
 
@@ -185,6 +204,7 @@ export function runTutorial({ camera, domElement, portrait, targets }) {
       done = true;
       markSeen();
       cancelAnimationFrame(raf);
+      voice.close();
       window.removeEventListener('keydown', onKey);
       root.remove();
       skip.remove();

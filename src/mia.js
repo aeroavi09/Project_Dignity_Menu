@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { FBXLoader } from 'three/examples/jsm/loaders/FBXLoader.js';
 import { ROOM, TABLE } from './layout.js';
 import { INK } from './scene.js';
+import { createVoice } from './voice.js';
 
 // Mia, a Mixamo-rigged character, collects every finished goodie bag: she walks in from the
 // right, reaches over the table, lifts the bag into her arms, turns, and carries it off frame.
@@ -40,6 +41,20 @@ const CARGO_HALF = 0.2; // the finished pouch's half-footprint, with its bulge
 const LOWER_EASE = 5; // 1/s
 
 const PORTRAIT_EYE_Y = 1.02; // m, about her eye line at HEIGHT
+
+// One recording of short quips; she says a random one each time she lifts a finished bag.
+// [start, end] in seconds, measured from the recording's silences: every gap between quips is
+// 0.5-0.7s, while pauses inside a quip are a few hundredths -- except the last one, which has
+// a 0.3s pause mid-line and is kept whole. Re-recording means re-measuring these.
+const QUIPS_URL = `${import.meta.env.BASE_URL}audio/MiaQuips.mp3`;
+const QUIPS = [
+  [0.11, 0.6],
+  [1.05, 1.8],
+  [2.29, 3.8],
+  [4.25, 5.06],
+  [5.45, 6.02],
+  [6.55, 8.78],
+];
 
 // The model faces +Z, so heading θ looks along (sin θ, cos θ).
 const FACE_LEFT = -Math.PI / 2;
@@ -141,6 +156,18 @@ export function createMia({ scene, renderer, bags, tags, carryAway }) {
   let turnYaw = null;
   let walkSpeed = 0;
   let carrySpeed = 0;
+
+  const quips = createVoice(QUIPS_URL);
+  let lastQuip = -1;
+
+  /** A random quip, never the same one twice running. */
+  function sayQuip() {
+    // Draw from the others, then step over the last one to fill the gap it left.
+    let i = Math.floor(Math.random() * (lastQuip < 0 ? QUIPS.length : QUIPS.length - 1));
+    if (lastQuip >= 0 && i >= lastQuip) i++;
+    lastQuip = i;
+    quips.play(QUIPS[i]);
+  }
 
   let state = 'away';
   let waiting = null; // { entry, t } -- a finished bag she is about to come for
@@ -279,6 +306,7 @@ export function createMia({ scene, renderer, bags, tags, carryAway }) {
     }
     if (entry.tag) group.attach(entry.tag.mesh);
     socket.attach(group); // keeps its world pose; the lift then eases it into her arms
+    sayQuip();
     job.group = group;
     job.liftFrom = group.position.clone();
     job.liftT = 0;
