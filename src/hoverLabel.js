@@ -36,7 +36,7 @@ export function createWorldLabel(camera, domElement, text, css = '') {
     el.style.visibility = 'visible';
   }
 
-  return { update };
+  return { update, dispose: () => el.remove() };
 }
 
 /**

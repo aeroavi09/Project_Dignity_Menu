@@ -56,5 +56,5 @@ export function createTagGenerator({ world, scene, pickables, onGrab }) {
   body.position.set(x, baseY + sy / 2, z);
   world.addBody(body);
 
-  return { position: new THREE.Vector3(x, baseY, z) };
+  return { group, position: new THREE.Vector3(x, baseY, z) };
 }
