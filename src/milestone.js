@@ -7,6 +7,8 @@ const VOLUNTEER_URL = 'https://example.org/volunteer';
 
 // The cards come up every time the finished-bag count reaches a multiple of this.
 export const MILESTONE_BAGS = 5;
+// At this count the badge card comes up instead: a free badge, claimed in person.
+export const BADGE_BAGS = 15;
 
 const STYLE = `
 .ms-backdrop {
@@ -80,7 +82,42 @@ const STYLE = `
   font-family: system-ui, -apple-system, sans-serif; font-size: 14px; font-weight: 700;
 }
 .ms-close:hover { background: #e6fbff; }
+
+.ms-badge-card { width: min(400px, calc(100vw - 40px)); }
+.ms-badge-card h2 { font-size: 32px; line-height: 1.1; padding: 0 28px; } /* clear of the ✕ */
+.ms-badge { width: 150px; height: 170px; margin: 0 auto 6px; display: block; }
+.ms-badge-card p { font-size: 20px; line-height: 1.35; }
+.ms-badge-card strong { color: #ff2d86; font-weight: normal; }
+
+/* Once earned, the badge stays on screen under the heart counter (bagCounter.js: top 74px,
+   76px tall) as a button that reopens the badge card. */
+.ms-badge-btn {
+  position: fixed; left: 30px; top: 158px; z-index: 15000;
+  width: 64px; height: 73px; padding: 0;
+  border: none; background: none; cursor: pointer;
+  display: none;
+  filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25));
+  transition: transform 0.12s ease;
+}
+.ms-badge-btn.earned { display: block; animation: ms-pop 0.45s cubic-bezier(0.2, 1.6, 0.4, 1) both; }
+.ms-badge-btn:hover { transform: scale(1.08); }
+.ms-badge-btn:focus-visible { outline: 3px solid #00c6e8; outline-offset: 4px; border-radius: 12px; }
+.ms-badge-btn .ms-badge { width: 100%; height: 100%; margin: 0; }
+@media (prefers-reduced-motion: reduce) { .ms-badge-btn.earned { animation: none; } }
 `;
+
+// A heart rosette with ribbon tails, inked in the room's black line.
+const BADGE_SVG = (n) => `
+  <svg class="ms-badge" viewBox="0 0 150 170" role="img" aria-label="Badge: ${n} bags filled">
+    <path d="M52 112 L34 166 L54 154 L66 170 L78 118 Z" fill="#00c6e8" stroke="#000" stroke-width="5" stroke-linejoin="round"/>
+    <path d="M98 112 L116 166 L96 154 L84 170 L72 118 Z" fill="#af1ef9" stroke="#000" stroke-width="5" stroke-linejoin="round"/>
+    <circle cx="75" cy="68" r="62" fill="#ffd76e" stroke="#000" stroke-width="5"/>
+    <circle cx="75" cy="68" r="48" fill="#fff4fb" stroke="#000" stroke-width="4"/>
+    <path d="M75 100 C52 84 42 72 42 60 C42 50 50 44 58 44 C65 44 71 48 75 55 C79 48 85 44 92 44 C100 44 108 50 108 60 C108 72 98 84 75 100 Z"
+      fill="#ff2d86" stroke="#000" stroke-width="4" stroke-linejoin="round"/>
+    <text x="75" y="76" text-anchor="middle" font-family="Blueberry, 'Comic Sans MS', cursive" font-size="26"
+      fill="#fff" stroke="#000" stroke-width="4" paint-order="stroke">${n}</text>
+  </svg>`;
 
 /** A QR-looking grid: the three finder squares, timing rows and seeded noise. Encodes nothing. */
 function drawPlaceholderQR(canvas, seed) {
@@ -119,6 +156,10 @@ function drawPlaceholderQR(canvas, seed) {
  * and two cards pop up side by side -- a donation QR code on the left, a volunteer link on the
  * right. Each card closes on its own; clicking outside or Esc closes the lot. `open()` brings
  * the same cards up on demand (the title sign), without the congratulations line.
+ *
+ * At BADGE_BAGS the badge card comes up instead -- a different pop-up, telling the player to show
+ * the screen to Fill a Heart 4 Kids for a free badge -- and the badge appears under the heart
+ * counter as a button that brings that card back.
  */
 export function createMilestonePopups() {
   loadBlueberryFont();
@@ -143,6 +184,39 @@ export function createMilestonePopups() {
       <p class="ms-url">${VOLUNTEER_URL}</p>
     </div>`;
   document.body.appendChild(backdrop);
+
+  const badgeBackdrop = document.createElement('div');
+  badgeBackdrop.className = 'ms-backdrop';
+  badgeBackdrop.innerHTML = `
+    <div class="ms-card ms-badge-card" role="dialog" aria-modal="true" aria-labelledby="ms-badge-title">
+      <button type="button" class="ms-close" aria-label="Close">✕</button>
+      <h2 id="ms-badge-title">Congrats! You earned a badge!</h2>
+      ${BADGE_SVG(BADGE_BAGS)}
+      <p>You filled <strong>${BADGE_BAGS} bags</strong>! Show this screen to our friends at
+        <strong>Fill a Heart 4 Kids (FAH4K)</strong> to claim your free badge.</p>
+    </div>`;
+  document.body.appendChild(badgeBackdrop);
+  const badgeCard = badgeBackdrop.querySelector('.ms-card');
+  const closeBadge = () => badgeBackdrop.classList.remove('open');
+  function openBadge() {
+    badgeCard.style.animation = 'none';
+    void badgeCard.offsetWidth; // replay the pop-in
+    badgeCard.style.animation = '';
+    badgeBackdrop.classList.add('open');
+  }
+
+  const badgeButton = document.createElement('button');
+  badgeButton.type = 'button';
+  badgeButton.className = 'ms-badge-btn';
+  badgeButton.setAttribute('aria-label', 'Your badge: show it to claim');
+  badgeButton.innerHTML = BADGE_SVG(BADGE_BAGS);
+  badgeButton.addEventListener('click', openBadge);
+  document.body.appendChild(badgeButton);
+  badgeBackdrop.querySelector('.ms-close').addEventListener('click', closeBadge);
+  badgeBackdrop.addEventListener('click', (e) => {
+    if (e.target === badgeBackdrop) closeBadge();
+  });
+
   drawPlaceholderQR(backdrop.querySelector('.ms-qr'), DONATE_QR_SEED);
 
   const cards = [...backdrop.querySelectorAll('.ms-card')];
@@ -160,7 +234,10 @@ export function createMilestonePopups() {
     if (e.target === backdrop) close();
   });
   window.addEventListener('keydown', (e) => {
-    if (e.key === 'Escape') close();
+    if (e.key === 'Escape') {
+      close();
+      closeBadge();
+    }
   });
 
   /** Show the cards, with a congratulations line above them when `message` is given. */
@@ -179,6 +256,11 @@ export function createMilestonePopups() {
 
   /** Call with the finished-bag count after each bag; opens the cards on every multiple of the milestone. */
   function check(count) {
+    if (count === BADGE_BAGS) {
+      badgeButton.classList.add('earned'); // stays on screen from here on
+      openBadge();
+      return;
+    }
     if (count <= 0 || count % MILESTONE_BAGS !== 0) return;
     show(`Congrats! You filled ${count} bags!`);
   }
