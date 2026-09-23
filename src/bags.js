@@ -127,6 +127,12 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
         continue;
       }
       if (entry.contained.has(item)) continue;
+      // One of each: a second copy of something the bag already counts is spat back out.
+      if ([...entry.contained].some((other) => other.label === item.label)) {
+        entry.settle.delete(item);
+        eject(item, c);
+        continue;
+      }
       const t = item.body.velocity.length() < SETTLE_SPEED ? (entry.settle.get(item) ?? 0) + dt : 0;
       entry.settle.set(item, t);
       if (t >= SETTLE_TIME) entry.contained.add(item);
@@ -197,8 +203,13 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     for (const item of items) {
       if (entry.contained.has(item) || drag.held === item.body || item.isHeld?.()) continue;
       if (!isInside(item.body, c)) continue;
-      item.push(item.body.position.x >= c.x ? EJECT_SIDE : -EJECT_SIDE, EJECT_UP);
+      eject(item, c);
     }
+  }
+
+  /** Pop an item up and out over whichever side of the bag it is nearer. */
+  function eject(item, c) {
+    item.push(item.body.position.x >= c.x ? EJECT_SIDE : -EJECT_SIDE, EJECT_UP);
   }
 
   function update(dt) {
@@ -250,6 +261,23 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     return bags.some((entry) => entry.contained.has(item));
   }
 
+  /**
+   * Send every stray bag back to the stack: any bag that was dropped somewhere other than
+   * the table (the floor, a shelf) is still soft and never placed. The one in hand is left
+   * alone, and placed bags are permanent.
+   */
+  function clearStrays() {
+    for (let i = bags.length - 1; i >= 0; i--) {
+      const { bag, checkmark } = bags[i];
+      if (bag.state !== 'soft' || bag.held) continue;
+      bag.dispose();
+      checkmark.dispose();
+      const p = pickables.indexOf(bag.mesh);
+      if (p !== -1) pickables.splice(p, 1);
+      bags.splice(i, 1);
+    }
+  }
+
   /** Drop a removed item from every bag's bookkeeping. */
   function forget(item) {
     for (const entry of bags) {
@@ -262,6 +290,7 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     update,
     holds,
     forget,
+    clearStrays,
     bagAt,
     get list() {
       return bags;

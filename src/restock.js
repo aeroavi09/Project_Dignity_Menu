@@ -50,6 +50,7 @@ export function createRestockButton({ slots, spawnItem, despawnItem, items, bags
       if (keep.has(item) || bags.holds(item)) continue;
       despawnItem(item);
     }
+    bags.clearStrays();
 
     button.classList.remove('spinning');
     void button.offsetWidth; // restart the animation on repeat presses

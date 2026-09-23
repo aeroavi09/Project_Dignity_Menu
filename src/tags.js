@@ -51,11 +51,17 @@ export function createTagSystem({ world, scene, camera, domElement, drag, pickab
 
   const popup = createTagPopup({ onComplete: (canvas) => spawnTag(canvas) });
 
+  // A tag is the last step of an order, so the maker only opens once some bag holds all nine
+  // items and is still waiting for its tag.
+  const tagWanted = () => bags.list.some((e) => e.complete && !e.tag);
+
   const gen = createTagGenerator({
     world,
     scene,
     pickables,
-    onGrab: () => popup.open(),
+    onGrab: () => {
+      if (tagWanted()) popup.open();
+    },
   });
   const generatorPos = gen.position;
 
@@ -156,7 +162,8 @@ export function createTagSystem({ world, scene, camera, domElement, drag, pickab
 
   function update(dt) {
     // Arrow: point at the tag generator whenever some completed bag still has no tag.
-    const needsTag = bags.list.some((e) => e.complete && !e.tag);
+    const needsTag = tagWanted();
+    gen.group.userData.label = needsTag ? 'Tag Maker' : 'Tag Maker (fill a bag first)';
     if (needsTag) {
       const rect = domElement.getBoundingClientRect();
       projected.set(generatorPos.x + 0.18, generatorPos.y + 0.12, generatorPos.z).project(camera);

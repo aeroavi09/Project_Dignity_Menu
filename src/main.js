@@ -19,7 +19,7 @@ const labelNameMap = {
   shampoo: 'Shampoo',
   bodyWash: 'Body Wash',
   conditioner: 'Hair Conditioner',
-  wipes: 'Hand Wipes',
+  wipes: 'Baby Wipes',
   soap: 'Soap',
   toothbrushSet: 'Toothbrush & Toothpaste',
   washrag: 'Washrag',

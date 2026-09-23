@@ -628,6 +628,15 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
     if (snapT === 1) finishPlacement();
   }
 
+  /** Remove a bag that never made it onto the table. Placed bags are permanent. */
+  function dispose() {
+    world.removeEventListener('postStep', onPostStep);
+    for (const p of particles) world.removeBody(p);
+    scene.remove(mesh);
+    for (const s of shells) s.geometry.dispose();
+    edgeGeometry.dispose();
+  }
+
   update(0);
 
   return {
@@ -635,6 +644,10 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
     center,
     beginDrag,
     update,
+    dispose,
+    get held() {
+      return cursor !== null;
+    },
     setShrivel,
     get shrivel() {
       return shrivel;
