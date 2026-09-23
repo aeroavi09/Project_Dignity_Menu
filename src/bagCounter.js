@@ -1,10 +1,10 @@
 import { loadBlueberryFont } from './fonts.js';
 
-// Top-left HUD: a heart holding the number of bags finished this session, inked in the same
-// black line as everything in the room.
+// Top-left HUD, under the Main Menu button (homeButton.js): a heart holding the number of bags
+// finished this session, inked in the same black line as everything in the room.
 const STYLE = `
 .bag-counter {
-  position: fixed; left: 16px; top: 14px; z-index: 15000;
+  position: fixed; left: 20px; top: 74px; z-index: 15000;
   width: 84px; height: 76px;
   pointer-events: none; user-select: none;
   filter: drop-shadow(0 3px 6px rgba(0, 0, 0, 0.25));

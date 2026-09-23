@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { SHELF } from './layout.js';
 import { GENERATOR_GROUP } from './softBodyBag.js';
+import { inkBoxMesh } from './scene.js';
 
 const SIZE = [0.3, 0.086, 0.22];
 
@@ -22,7 +23,7 @@ export function createBagGenerator({ world, scene, pickables, onGrab }) {
     slab.rotation.y = (n - 2) * 0.025;
     slab.castShadow = true;
     slab.receiveShadow = true;
-    group.add(slab);
+    group.add(inkBoxMesh(slab));
   }
   const band = new THREE.Mesh(
     new THREE.BoxGeometry(0.05, 0.084, 0.206),
@@ -30,7 +31,7 @@ export function createBagGenerator({ world, scene, pickables, onGrab }) {
   );
   band.position.y = 0.042;
   band.castShadow = true;
-  group.add(band);
+  group.add(inkBoxMesh(band));
 
   group.position.set(x, baseY, z);
   group.userData.label = 'Plastic Bags';

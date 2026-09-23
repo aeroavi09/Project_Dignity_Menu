@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { loadBlueberryFont } from './fonts.js';
+import { INK, inkBoxEdges } from './scene.js';
 
 const FONT_FAMILY = 'Blueberry';
 
@@ -84,6 +85,9 @@ export function createTitleSign({ world, scene }) {
   );
   ledgeMesh.position.copy(ledgeBody.position);
   scene.add(ledgeMesh);
+  // Inked on every edge like the rest of the furniture, with a heavier pen: it hangs furthest
+  // back of anything in the room, so the standard line reads thinner here than elsewhere.
+  scene.add(inkBoxEdges([{ size: [LEDGE_W, LEDGE_H, LEDGE_D], pos: ledgeBody.position.toArray() }], INK * 1.5));
 
   let body = null;
   let mesh = null;

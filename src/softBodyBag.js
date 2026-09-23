@@ -49,6 +49,21 @@ const SPRING_DAMPING = 0.2;
 const LIFT_SCALE = 0.8;
 const LIFT_RATE = 7; // per second, toward the target scale
 
+// A bag is 46cm tall with its handle and the shelf's cubbies are 35cm, so a bag inside the
+// shelf's span is folded squat enough to fit one: its springs' vertical rest lengths shrink by
+// SHELF_FOLD, the particles follow them, and the film (mapped through the particles) follows
+// those. The particles collide with the boards like any item, so a bag lifted off its stack
+// stops under the board above instead of passing through it; it comes out of the side, the
+// way items do, and unfolds once it is clear of the shelf.
+const SHELF_GAP = SHELF.levels[3] - SHELF.boardT - SHELF.levels[4]; // one cubby, board to board
+const SHELF_FOLD = (SHELF_GAP - 2 * PARTICLE_RADIUS - 0.02) / (BAG.height + BAG.handleHeight);
+const FOLD_RATE = 5; // per second, toward the target fold
+
+/** Whether a bag whose base centre is at (x, y) is within the shelf's span, below its top board. */
+function inShelf(x, y) {
+  return Math.abs(x - SHELF.centerX) < SHELF.width / 2 + BAG.width / 2 && y < SHELF.levels[0] - 0.01;
+}
+
 const SKIN_K = 240;
 const SKIN_DAMP = 17;
 const SKIN_MAX_LAG = 0.06;
@@ -328,6 +343,8 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
   const inkProbe = new THREE.Vector3();
   const inkScreen = new THREE.Vector3();
 
+  let fold = inShelf(origin.x, origin.y) ? SHELF_FOLD : 1;
+
   const particles = REST.map((rest) => {
     const body = new CANNON.Body({
       mass: PARTICLE_MASS,
@@ -338,7 +355,7 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
       collisionFilterMask: 1,
       allowSleep: false,
     });
-    body.position.set(origin.x + rest.x, origin.y + PARTICLE_RADIUS + 0.001 + rest.y, origin.z + rest.z);
+    body.position.set(origin.x + rest.x, origin.y + PARTICLE_RADIUS + 0.001 + rest.y * fold, origin.z + rest.z);
     world.addBody(body);
     return body;
   });
@@ -351,6 +368,17 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
         damping: SPRING_DAMPING,
       })
   );
+  const springSpans = SPRING_LAYOUT.map(([a, b]) => new THREE.Vector3().subVectors(REST[b], REST[a]));
+
+  /** Set every spring's rest length for a bag folded to `f` of its height (1 = full size). */
+  function applyFold(f) {
+    springs.forEach((spring, i) => {
+      const d = springSpans[i];
+      spring.restLength = Math.hypot(d.x, d.y * f, d.z);
+    });
+  }
+  applyFold(fold);
+  const base = new THREE.Vector3();
 
   let state = 'soft';
   let cursor = null;
@@ -620,6 +648,16 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
     if (state === 'placed') return;
     if (state === 'soft') {
       particles.forEach((p, n) => pts[n].copy(p.position));
+      // Base centre: the mean of the four bottom corners (y bit clear).
+      base.set(0, 0, 0);
+      for (const n of [0, 1, 4, 5]) base.add(pts[n]);
+      base.multiplyScalar(0.25);
+      const foldTarget = inShelf(base.x, base.y) ? SHELF_FOLD : 1;
+      if (fold !== foldTarget) {
+        fold += (foldTarget - fold) * Math.min(1, FOLD_RATE * dt);
+        if (Math.abs(foldTarget - fold) < 1e-3) fold = foldTarget;
+        applyFold(fold);
+      }
       lift += ((cursor ? LIFT_SCALE : 1) - lift) * Math.min(1, LIFT_RATE * dt);
       if (dt > 0) relaxSkin(dt);
       else syncSkin();

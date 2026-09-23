@@ -14,6 +14,7 @@ import { createBagCounter } from './bagCounter.js';
 import { listenForCode, drawCheatTag } from './cheats.js';
 import { createTagSystem } from './tags.js';
 import { createRestockButton } from './restock.js';
+import { createHomeButton } from './homeButton.js';
 import { createAchievements } from './achievements.js';
 import { createBottleFlipWatcher } from './bottleFlip.js';
 import { createThrowInWatcher } from './throwIn.js';
@@ -200,6 +201,8 @@ function bootGame() {
     items: trackedItems,
     onFinish: () => bagCounter.add(),
   });
+
+  createHomeButton();
 
   createRestockButton({
     slots,

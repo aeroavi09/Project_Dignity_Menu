@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { ROOM } from './layout.js';
 
 const CAMERA_TARGET = new THREE.Vector3(0, 0.95, 0);
@@ -107,6 +108,42 @@ export function addStaticMeshes(scene, parts) {
     mesh.receiveShadow = true;
     scene.add(mesh);
   }
+  scene.add(inkBoxEdges(parts));
+}
+
+/**
+ * Furniture is inked on every edge, not just its silhouette. An inverted hull only draws the
+ * outline of a shape, so a square leg seen at an angle -- two faces visible -- came out with
+ * no line down the corner between them, and the table top had none along its front edge.
+ *
+ * Each of a box's 12 edges becomes a black bar one pen width across, centred on the edge so
+ * half of it sits on the faces and half stands proud of the silhouette. That reads as the same
+ * 3.6mm line whether the edge is a crease or an outline, and where two parts meet (a board
+ * into a post) their edges draw the joint. All of it is merged into one mesh.
+ */
+export function inkBoxEdges(parts, width = INK) {
+  const bars = [];
+  for (const { size, pos } of parts) {
+    const half = size.map((s) => s / 2);
+    for (let axis = 0; axis < 3; axis++) {
+      const [a, b] = [0, 1, 2].filter((i) => i !== axis);
+      for (const sa of [-1, 1]) {
+        for (const sb of [-1, 1]) {
+          const dims = [width, width, width];
+          dims[axis] = size[axis] + width; // overrun by half a pen at each end so corners close
+          const bar = new THREE.BoxGeometry(...dims);
+          const at = [...pos];
+          at[a] += sa * half[a];
+          at[b] += sb * half[b];
+          bar.translate(...at);
+          bars.push(bar);
+        }
+      }
+    }
+  }
+  const merged = mergeGeometries(bars);
+  for (const bar of bars) bar.dispose();
+  return new THREE.Mesh(merged, INK_MATERIAL);
 }
 
 // ---------------------------------------------------------------------------
@@ -119,6 +156,17 @@ function mat(color, roughness = 0.32) {
 
 function shade(color, amount) {
   return new THREE.Color(color).lerp(new THREE.Color(amount > 0 ? 0xffffff : 0x000000), Math.abs(amount));
+}
+
+/**
+ * Ink one box mesh on all 12 edges, in its own space so the lines follow it however it is
+ * turned. `scale` is any uniform scale the mesh will be drawn at (a scaled parent group), so
+ * the pen stays INK wide on screen rather than growing with it.
+ */
+export function inkBoxMesh(mesh, scale = 1) {
+  const { width, height, depth } = mesh.geometry.parameters;
+  mesh.add(inkBoxEdges([{ size: [width, height, depth], pos: [0, 0, 0] }], INK / scale));
+  return mesh;
 }
 
 // Sharpie-style outline: a black shell of the same geometry rendered back-faces-only,

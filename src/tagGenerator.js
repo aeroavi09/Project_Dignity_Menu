@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import * as CANNON from 'cannon-es';
 import { SHELF } from './layout.js';
 import { GENERATOR_GROUP } from './softBodyBag.js';
+import { inkBoxMesh, outline } from './scene.js';
 
 const SIZE = [0.16, 0.1, 0.15];
 const SCALE = 1.6;
@@ -24,7 +25,7 @@ export function createTagGenerator({ world, scene, pickables, onGrab }) {
     tag.rotation.y = (n - 1.5) * 0.04;
     tag.castShadow = true;
     tag.receiveShadow = true;
-    group.add(tag);
+    group.add(inkBoxMesh(tag, SCALE));
   }
   const ring = new THREE.Mesh(
     new THREE.TorusGeometry(0.012, 0.0025, 8, 16),
@@ -32,13 +33,13 @@ export function createTagGenerator({ world, scene, pickables, onGrab }) {
   );
   ring.position.set(0, 0.05, 0.05);
   ring.rotation.x = Math.PI / 2;
-  group.add(ring);
+  group.add(outline(ring));
 
   // Little crayon-tip dabs hinting "customize me".
   [0xff4d6d, 0x2f9e44, 0x2f7de1].forEach((c, i) => {
     const dab = new THREE.Mesh(new THREE.SphereGeometry(0.008, 8, 8), new THREE.MeshStandardMaterial({ color: c, roughness: 0.5 }));
     dab.position.set(-0.035 + i * 0.02, 0.044, 0.05);
-    group.add(dab);
+    group.add(outline(dab));
   });
 
   group.scale.setScalar(SCALE);
