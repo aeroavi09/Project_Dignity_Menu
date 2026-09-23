@@ -158,6 +158,17 @@ function shade(color, amount) {
   return new THREE.Color(color).lerp(new THREE.Color(amount > 0 ? 0xffffff : 0x000000), Math.abs(amount));
 }
 
+/**
+ * Ink one box mesh on all 12 edges, in its own space so the lines follow it however it is
+ * turned. `scale` is any uniform scale the mesh will be drawn at (a scaled parent group), so
+ * the pen stays INK wide on screen rather than growing with it.
+ */
+export function inkBoxMesh(mesh, scale = 1) {
+  const { width, height, depth } = mesh.geometry.parameters;
+  mesh.add(inkBoxEdges([{ size: [width, height, depth], pos: [0, 0, 0] }], INK / scale));
+  return mesh;
+}
+
 // Sharpie-style outline: a black shell of the same geometry rendered back-faces-only,
 // pushed out by a constant thickness in every direction. It is parented to the mesh so it
 // inherits its position and rotation and scales along the geometry's own axes — a uniform
