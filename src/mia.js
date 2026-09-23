@@ -39,6 +39,8 @@ const LIFT_ARC = 0.04; // a small hop as it leaves the table
 const CARGO_HALF = 0.2; // the finished pouch's half-footprint, with its bulge
 const LOWER_EASE = 5; // 1/s
 
+const PORTRAIT_EYE_Y = 1.02; // m, about her eye line at HEIGHT
+
 // The model faces +Z, so heading θ looks along (sin θ, cos θ).
 const FACE_LEFT = -Math.PI / 2;
 const FACE_TABLE = Math.PI;
@@ -125,7 +127,11 @@ function easeAngle(from, to, k) {
  * `carryAway(item)` is main.js's hand-off: it pulls an item out of the simulation and every
  * tracking list but leaves its mesh, so she can pick it up. Call `update(dt)` every frame.
  */
-export function createMia({ scene, bags, tags, carryAway }) {
+export function createMia({ scene, renderer, bags, tags, carryAway }) {
+  let resolvePortrait;
+  // A head-and-shoulders picture of her (data URL) for the tutorial's speech bubble. Resolves
+  // once the model and its texture are both in; never resolves if the model fails to load.
+  const portrait = new Promise((r) => (resolvePortrait = r));
   let ready = false;
   let root = null;
   let mixer = null;
@@ -190,8 +196,69 @@ export function createMia({ scene, bags, tags, carryAway }) {
         actions[name].clampWhenFinished = true;
       }
       ready = true;
+      whenTextured(skinned).then(() => resolvePortrait(renderPortrait()));
     })
     .catch((err) => console.error('Mia failed to load', err));
+
+  /**
+   * FBXLoader hands back the model before its texture image has finished decoding. Also waits
+   * for her to be offstage, since the portrait borrows her mixer and pose.
+   */
+  function whenTextured(meshes) {
+    const ready = () => state === 'away' && meshes.every((m) => m.material.map?.image?.width > 0);
+    return new Promise((resolve) => {
+      const check = () => (ready() ? resolve() : setTimeout(check, 100));
+      check();
+    });
+  }
+
+  /**
+   * Draw her head and shoulders, standing in the first frame of her walk, into a small render
+   * target and hand back the pixels as a data URL. She is borrowed from the room for the one
+   * render and put straight back; she is hidden there until a bag needs collecting anyway.
+   */
+  function renderPortrait() {
+    const home = root.parent;
+    const saved = { position: root.position.clone(), rotation: root.rotation.y, visible: root.visible };
+    const stage = new THREE.Scene();
+    stage.background = new THREE.Color(0xfff4fb);
+    stage.add(root);
+    root.position.set(0, 0, 0);
+    root.rotation.y = 0; // facing +Z, toward the camera below
+    root.visible = true;
+    actions.walk.reset().play();
+    mixer.update(0);
+    root.updateMatrixWorld(true);
+
+    const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 10);
+    camera.position.set(0, PORTRAIT_EYE_Y, 0.8);
+    camera.lookAt(0, PORTRAIT_EYE_Y - 0.03, 0);
+    const size = 256;
+    const target = new THREE.WebGLRenderTarget(size, size, { colorSpace: THREE.SRGBColorSpace });
+    const previous = renderer.getRenderTarget();
+    renderer.setRenderTarget(target);
+    renderer.render(stage, camera);
+    renderer.setRenderTarget(previous);
+    const pixels = new Uint8Array(size * size * 4);
+    renderer.readRenderTargetPixels(target, 0, 0, size, size, pixels);
+    target.dispose();
+
+    mixer.stopAllAction();
+    home.add(root);
+    root.position.copy(saved.position);
+    root.rotation.y = saved.rotation;
+    root.visible = saved.visible;
+
+    // Render targets read back bottom row first.
+    const canvas = document.createElement('canvas');
+    canvas.width = canvas.height = size;
+    const g = canvas.getContext('2d');
+    const image = g.createImageData(size, size);
+    const row = size * 4;
+    for (let y = 0; y < size; y++) image.data.set(pixels.subarray((size - 1 - y) * row, (size - y) * row), y * row);
+    g.putImageData(image, 0, 0);
+    return canvas.toDataURL();
+  }
 
   function switchTo(from, to) {
     actions[from].fadeOut(FADE);
@@ -313,7 +380,7 @@ export function createMia({ scene, bags, tags, carryAway }) {
     root.rotation.y = heading;
   }
 
-  return { update };
+  return { update, portrait };
 }
 
 const ORIGIN = new THREE.Vector3();

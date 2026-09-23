@@ -242,5 +242,5 @@ export function createTagSystem({ world, scene, camera, domElement, drag, pickab
     for (const child of t.mesh.children) if (child.material !== INK_MATERIAL) child.material.dispose();
   }
 
-  return { update, disposeTag, attachNew };
+  return { update, disposeTag, attachNew, generator: gen.group };
 }

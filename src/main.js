@@ -13,6 +13,7 @@ import { createMia } from './mia.js';
 import { createBagCounter } from './bagCounter.js';
 import { createMilestonePopups } from './milestone.js';
 import { listenForCode, drawCheatTag } from './cheats.js';
+import { hasSeenTutorial, runTutorial } from './tutorial.js';
 import { createTagSystem } from './tags.js';
 import { createRestockButton } from './restock.js';
 import { createHomeButton } from './homeButton.js';
@@ -21,6 +22,8 @@ import { createBottleFlipWatcher } from './bottleFlip.js';
 import { createThrowInWatcher } from './throwIn.js';
 import { startMenu } from './menu.js';
 import { createSettingsUI, getSettings } from './settings.js';
+
+const TUTORIAL_DELAY_MS = 1200;
 
 const labelNameMap = {
   shampoo: 'Shampoo',
@@ -234,7 +237,7 @@ function bootGame() {
 
   // Clicking the sign brings up the donate/volunteer cards any time, without the congrats line.
   const titleSign = createTitleSign({ world, scene, pickables, onClick: () => milestone.open() });
-  const mia = createMia({ scene, bags, tags, carryAway });
+  const mia = createMia({ scene, renderer, bags, tags, carryAway });
 
   // Secret: type "chellito" to get a packed, tagged bag -- skips the packing when testing.
   listenForCode('chellito', () => {
@@ -253,6 +256,23 @@ function bootGame() {
     await createBubbleTransition(scene, camera, { reduceMotion: getSettings().reduceMotion });
     bubbleTransitionComplete = true;
     titleSign.drop('Toiletries 4 Dignity');
+
+    // First visit only: Mia's tutorial, once the title sign has had a moment to land.
+    if (!hasSeenTutorial()) {
+      const onShelf = (kind) => trackedItems.filter((i) => i.spec.kind === kind && !bags.holds(i)).map((i) => i.mesh);
+      setTimeout(() => {
+        runTutorial({
+          camera,
+          domElement: renderer.domElement,
+          portrait: mia.portrait,
+          targets: {
+            soap: () => onShelf('soap'),
+            washcloth: () => onShelf('washrag'),
+            card: () => [tags.generator],
+          },
+        });
+      }, TUTORIAL_DELAY_MS);
+    }
   }
 
   function frame(now) {
