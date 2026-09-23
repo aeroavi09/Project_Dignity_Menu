@@ -11,6 +11,7 @@ import { createSoftRag } from './softRag.js';
 import { createTitleSign } from './title.js';
 import { createTagSystem } from './tags.js';
 import { createRestockButton } from './restock.js';
+import { createHomeButton } from './homeButton.js';
 import { createAchievements } from './achievements.js';
 import { createBottleFlipWatcher } from './bottleFlip.js';
 import { createThrowInWatcher } from './throwIn.js';
@@ -171,6 +172,8 @@ function bootGame() {
     pickables,
     items: trackedItems,
   });
+
+  createHomeButton();
 
   createRestockButton({
     slots,
