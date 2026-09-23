@@ -2,13 +2,16 @@ import * as CANNON from 'cannon-es';
 import { buildItems } from './layout.js';
 import { createPhysics, FIXED_DT, MAX_SUBSTEPS } from './physics.js';
 import { createDragController } from './drag.js';
-import { createScene, addStaticMeshes, createItemMesh } from './scene.js';
+import { createScene, addStaticMeshes, createItemMesh, disposeItemMesh } from './scene.js';
 import { createInteraction } from './interaction.js';
 import { createBubbleTransition } from './bubbles.js';
 import { createHoverLabel } from './hoverLabel.js';
 import { createBagSystem } from './bags.js';
 import { createSoftRag } from './softRag.js';
 import { createTitleSign } from './title.js';
+import { createMia } from './mia.js';
+import { createBagCounter } from './bagCounter.js';
+import { listenForCode, drawCheatTag } from './cheats.js';
 import { createTagSystem } from './tags.js';
 import { createRestockButton } from './restock.js';
 import { createHomeButton } from './homeButton.js';
@@ -69,6 +72,7 @@ function bootGame() {
         spec,
         label,
         body: rag.body,
+        mesh: rag.mesh,
         isHeld: () => rag.held,
         push: (vx, vy) => rag.push(vx, vy),
         reset: () => rag.reset(),
@@ -78,6 +82,12 @@ function bootGame() {
         lock: () => {
           rag.lock();
           rag.mesh.userData.locked = true;
+        },
+        // Out of the simulation, mesh left where it is (see carryAway).
+        detach: () => {
+          rag.detach();
+          drop(rags, rag);
+          drop(pickables, rag.mesh);
         },
         destroy: () => {
           rag.dispose();
@@ -102,6 +112,7 @@ function bootGame() {
       spec,
       label,
       body,
+      mesh,
       push: (vx, vy) => {
         body.velocity.set(vx, vy, 0);
         body.wakeUp();
@@ -129,13 +140,16 @@ function bootGame() {
         body.angularVelocity.setZero();
         body.wakeUp();
       },
-      destroy: () => {
+      // Out of the simulation and no longer synced to the body, mesh left where it is.
+      detach: () => {
         world.removeBody(body);
-        scene.remove(mesh);
-        mesh.geometry.dispose();
-        mesh.material.dispose();
         drop(pairs, pair);
         drop(pickables, mesh);
+      },
+      destroy: () => {
+        handle.detach();
+        mesh.removeFromParent();
+        disposeItemMesh(mesh);
       },
     };
     trackedItems.push(handle);
@@ -147,6 +161,19 @@ function bootGame() {
     handle.destroy();
     drop(trackedItems, handle);
     bags.forget(handle);
+  }
+
+  /**
+   * Hand an item over to whoever is carrying its finished bag away: it leaves the simulation
+   * and every tracking list, but its mesh stays put for the carrier to move, and `destroy()`
+   * is theirs to call once it is out of sight. `gone` tells the restock button to refill the
+   * slot rather than try to reset an item that no longer exists.
+   */
+  function carryAway(handle) {
+    handle.detach();
+    drop(trackedItems, handle);
+    bags.forget(handle);
+    handle.gone = true;
   }
 
   const drag = createDragController(world);
@@ -163,6 +190,7 @@ function bootGame() {
 
   const hoverLabel = createHoverLabel(camera, renderer.domElement, pickables);
 
+  const bagCounter = createBagCounter();
   const bags = createBagSystem({
     world,
     scene,
@@ -171,6 +199,7 @@ function bootGame() {
     drag,
     pickables,
     items: trackedItems,
+    onFinish: () => bagCounter.add(),
   });
 
   createHomeButton();
@@ -199,7 +228,14 @@ function bootGame() {
   });
 
   const titleSign = createTitleSign({ world, scene });
+  const mia = createMia({ scene, bags, tags, carryAway });
 
+  // Secret: type "chellito" to get a packed, tagged bag -- skips the packing when testing.
+  listenForCode('chellito', () => {
+    const entry = bags.autoPack();
+    if (entry) tags.attachNew(entry, drawCheatTag());
+    else console.warn('chellito: no room on the table, or an item has no free copy -- try Restock');
+  });
   // Fixed-timestep physics driven by the render loop: accumulate real elapsed time
   // and run whole FIXED_DT steps; leftover time carries into the next frame.
   let accumulator = 0;
@@ -237,6 +273,7 @@ function bootGame() {
     bags.update(elapsed);
     tags.update(elapsed);
     titleSign.update();
+    mia.update(elapsed);
     bottleFlip.update(elapsed);
     throwIn.update(elapsed);
 

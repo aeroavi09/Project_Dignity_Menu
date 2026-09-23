@@ -42,7 +42,8 @@ export function createRestockButton({ slots, spawnItem, despawnItem, items, bags
 
     const keep = new Set();
     for (const slot of slots) {
-      if (bags.holds(slot.item)) slot.item = spawnItem(slot.spec);
+      // `gone` = carried off in a finished bag; like a bagged item, it never comes back.
+      if (bags.holds(slot.item) || slot.item.gone) slot.item = spawnItem(slot.spec);
       else slot.item.reset();
       keep.add(slot.item);
     }

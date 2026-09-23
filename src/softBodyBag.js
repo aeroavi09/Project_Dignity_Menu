@@ -485,6 +485,15 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
     body.addShape(sides, new CANNON.Vec3(-(hx + t - 0.005), hy, 0));
     body.position.set(center.x, TABLE.topY, center.z);
     world.addBody(body);
+    placedBody = body;
+  }
+
+  let placedBody = null;
+
+  /** Drop a placed bag's collider, e.g. when it is carried off the table. */
+  function releaseBody() {
+    if (placedBody) world.removeBody(placedBody);
+    placedBody = null;
   }
 
 
@@ -666,11 +675,12 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
     if (snapT === 1) finishPlacement();
   }
 
-  /** Remove a bag that never made it onto the table. Placed bags are permanent. */
+  /** Remove the bag and everything it added to the world and scene. */
   function dispose() {
     world.removeEventListener('postStep', onPostStep);
     for (const p of particles) world.removeBody(p);
-    scene.remove(mesh);
+    releaseBody();
+    mesh.removeFromParent();
     for (const s of shells) s.geometry.dispose();
     edgeGeometry.dispose();
   }
@@ -683,6 +693,7 @@ export function createBag({ world, scene, camera, origin, canPlace, onSnapStart 
     beginDrag,
     update,
     dispose,
+    releaseBody,
     get held() {
       return cursor !== null;
     },

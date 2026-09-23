@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { BAG, bagHalfExtents, createBag } from './softBodyBag.js';
 import { createBagGenerator } from './bagGenerator.js';
 import { createWorldLabel } from './hoverLabel.js';
+import { TABLE } from './layout.js';
 
 const SETTLE_SPEED = 0.2;
 const SETTLE_TIME = 0.2;
@@ -52,7 +53,7 @@ const CHECK_CSS = `
 `;
 
 /** Bag generator + all spawned bags, containment tracking and per-bag completion checkmarks. */
-export function createBagSystem({ world, scene, camera, domElement, drag, pickables, items }) {
+export function createBagSystem({ world, scene, camera, domElement, drag, pickables, items, onFinish }) {
   const bags = [];
   const required = new Set(items.map((i) => i.label));
   const checkPos = new THREE.Vector3();
@@ -228,7 +229,10 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
         const e = 1 - (1 - f.t) ** 3;
         entry.bag.setShrivel(e);
         for (const { handle, pos, quat } of f.targets) handle.placeAt(pos, quat, e);
-        if (f.t >= 1) entry.finish = null;
+        if (f.t >= 1) {
+          entry.finish = null;
+          onFinish?.(entry);
+        }
       }
 
       if (entry.sealed) {
@@ -278,6 +282,65 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     }
   }
 
+  /**
+   * Debug shortcut: drop a bag on the first free spot of the table and seal one free copy of
+   * every item into it, as if the player had packed it. The items are locked where they
+   * stand; the finish tidy flies them into the pouch once a tag goes on. Returns the entry,
+   * or null if the table is full or some item has no free copy (restock first).
+   */
+  function autoPack() {
+    const picked = new Map();
+    for (const item of items) {
+      if (picked.has(item.label) || holds(item) || drag.held === item.body || item.isHeld?.()) continue;
+      picked.set(item.label, item);
+    }
+    if ([...required].some((label) => !picked.has(label))) return null;
+
+    const reach = TABLE.width / 2 - BAG.width / 2 - 0.02;
+    let x = null;
+    for (let i = 0; i <= 24 && x === null; i++) {
+      const candidate = TABLE.centerX - reach + (2 * reach * i) / 24;
+      if (canPlace(candidate)) x = candidate;
+    }
+    if (x === null) return null;
+
+    const origin = new THREE.Vector3(x, TABLE.topY + 0.02, TABLE.centerZ);
+    const bag = spawnBag(origin);
+    bag.beginDrag(origin).release();
+    const entry = bags.find((e) => e.bag === bag);
+    if (bag.state === 'soft') {
+      // release() declined the spot after all: put the bag back rather than leave a stray.
+      bag.dispose();
+      entry.checkmark.dispose();
+      pickables.splice(pickables.indexOf(bag.mesh), 1);
+      bags.splice(bags.indexOf(entry), 1);
+      return null;
+    }
+    for (const item of picked.values()) {
+      item.lock();
+      entry.contained.add(item);
+    }
+    entry.complete = true;
+    entry.sealed = true;
+    return entry;
+  }
+
+  /** True once a bag is complete, tagged, and has finished shrivelling into its pouch. */
+  function isFinished(entry) {
+    return entry.complete && entry.tag && !entry.finish && entry.bag.shrivel === 1;
+  }
+
+  /**
+   * Take a finished bag off the table for good. Its collider, checkmark and bookkeeping go now,
+   * freeing its spot on the table; its meshes are left for the caller (whoever is carrying it
+   * off), who disposes the bag with `entry.bag.dispose()` once it is out of sight.
+   */
+  function takeAway(entry) {
+    entry.bag.releaseBody();
+    entry.checkmark.dispose();
+    bags.splice(bags.indexOf(entry), 1);
+  }
+
   /** Drop a removed item from every bag's bookkeeping. */
   function forget(item) {
     for (const entry of bags) {
@@ -292,6 +355,9 @@ export function createBagSystem({ world, scene, camera, domElement, drag, pickab
     forget,
     clearStrays,
     bagAt,
+    isFinished,
+    takeAway,
+    autoPack,
     get list() {
       return bags;
     },
