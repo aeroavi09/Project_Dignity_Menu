@@ -11,10 +11,9 @@ import { createSoftRag } from './softRag.js';
 import { createTitleSign } from './title.js';
 import { createMia } from './mia.js';
 import { createBagCounter } from './bagCounter.js';
+import { createMilestonePopups } from './milestone.js';
 import { listenForCode, drawCheatTag } from './cheats.js';
 import { hasSeenTutorial, runTutorial } from './tutorial.js';
-
-const TUTORIAL_DELAY_MS = 1200;
 import { createTagSystem } from './tags.js';
 import { createRestockButton } from './restock.js';
 import { createHomeButton } from './homeButton.js';
@@ -23,6 +22,8 @@ import { createBottleFlipWatcher } from './bottleFlip.js';
 import { createThrowInWatcher } from './throwIn.js';
 import { startMenu } from './menu.js';
 import { createSettingsUI, getSettings } from './settings.js';
+
+const TUTORIAL_DELAY_MS = 1200;
 
 const labelNameMap = {
   shampoo: 'Shampoo',
@@ -194,6 +195,7 @@ function bootGame() {
   const hoverLabel = createHoverLabel(camera, renderer.domElement, pickables);
 
   const bagCounter = createBagCounter();
+  const milestone = createMilestonePopups();
   const bags = createBagSystem({
     world,
     scene,
@@ -202,7 +204,10 @@ function bootGame() {
     drag,
     pickables,
     items: trackedItems,
-    onFinish: () => bagCounter.add(),
+    onFinish: () => {
+      bagCounter.add();
+      milestone.check(bagCounter.count);
+    },
   });
 
   createHomeButton();
@@ -230,7 +235,8 @@ function bootGame() {
     bags,
   });
 
-  const titleSign = createTitleSign({ world, scene });
+  // Clicking the sign brings up the donate/volunteer cards any time, without the congrats line.
+  const titleSign = createTitleSign({ world, scene, pickables, onClick: () => milestone.open() });
   const mia = createMia({ scene, renderer, bags, tags, carryAway });
 
   // Secret: type "chellito" to get a packed, tagged bag -- skips the packing when testing.

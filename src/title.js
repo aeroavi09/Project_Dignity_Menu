@@ -68,7 +68,7 @@ function signBoardTexture(text) {
  * spawns and releases the falling board, and `update()` must be called every frame to
  * mirror the mesh onto the settled body (same pattern as bags.js/tags.js).
  */
-export function createTitleSign({ world, scene }) {
+export function createTitleSign({ world, scene, pickables, onClick }) {
   const signMaterial = new CANNON.Material('sign');
   world.addContactMaterial(
     new CANNON.ContactMaterial(signMaterial, signMaterial, { friction: 0.6, restitution: 0.15 })
@@ -106,6 +106,15 @@ export function createTitleSign({ world, scene }) {
       [boardMat, boardMat, boardMat, boardMat, faceMat, boardMat]
     );
     scene.add(mesh);
+    // Clickable, not grabbable: an onGrab that returns nothing opens something instead of
+    // starting a drag (see interaction.js), the same trick as the tag maker.
+    if (onClick) {
+      mesh.userData.label = 'Donate & Volunteer';
+      mesh.userData.onGrab = () => {
+        onClick();
+      };
+      pickables.push(mesh);
+    }
 
     body = new CANNON.Body({
       mass: SIGN_MASS,

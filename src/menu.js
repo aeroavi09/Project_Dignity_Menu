@@ -1356,20 +1356,38 @@ function buildBins(scene, bins) {
     const kind = BIN_ITEMS[i];
     const palette = ITEM_COLORS[kind];
     const flat = kind === 'soap' || kind === 'washrag' || kind === 'toothbrushSet';
-    const count = i === 8 ? 6 : flat ? 4 : 5;
     // A slanted bin is read over its low front lip, not its back edge, so it gets its own
     // reference height. Everything then sits a fixed amount proud of that line.
     const rimY = spec.type === 'tub' ? spec.h : spec.h * 0.55 + 0.07;
-    const baseY = rimY + (flat ? 0.05 : 0.1) - ITEM_H[kind];
+    // Nothing may start above the line the bin's front hides: an item whose bottom shows reads
+    // as floating over an empty bin. Tall bottles already reach well below it; short items
+    // (soap, lip balm, a flat stack of rags) used to sit a few cm above the rim in mid-air.
+    // The camera looks slightly down into the bins, so the line sits a little under the rim.
+    const hiddenY = spec.type === 'tub' ? spec.h - 0.035 : spec.h * 0.55;
+    const baseY = Math.min(rimY + (flat ? 0.05 : 0.1) - ITEM_H[kind], hiddenY - 0.02);
+    // Flat goods pile from below that line, so each of the two piles gets as many layers as it
+    // takes to stand ~6cm above the bin's visible front edge; thin rags need more than soap.
+    const PILE_SHOW = 0.06;
+    const frontY = spec.type === 'tub' ? spec.h : spec.h * 0.55;
+    const count = flat ? 2 * Math.ceil((frontY + PILE_SHOW - baseY) / ITEM_H[kind]) : 5;
     for (let s = 0; s < count; s++) {
       const item = toiletryMesh(kind, palette[Math.floor(rand() * palette.length)]);
-      item.position.set(
-        (rand() - 0.5) * spec.w * 0.52,
-        baseY + (flat ? s * 0.032 : 0),
-        (rand() - 0.5) * spec.w * 0.3
-      );
-      item.rotation.y = rand() * Math.PI * 2;
-      if (!flat) item.rotation.z = (rand() - 0.5) * 0.28;
+      if (flat) {
+        // Flat goods go in two neat piles, each layer squarely on the one below. Scattered at
+        // random, an upper bar rarely landed on anything and read as hovering.
+        const pile = s % 2;
+        const layer = Math.floor(s / 2);
+        item.position.set(
+          (pile - 0.5) * spec.w * 0.3 + (rand() - 0.5) * 0.02,
+          baseY + layer * ITEM_H[kind],
+          (rand() - 0.5) * 0.03
+        );
+        item.rotation.y = (rand() - 0.5) * 0.35;
+      } else {
+        item.position.set((rand() - 0.5) * spec.w * 0.52, baseY, (rand() - 0.5) * spec.w * 0.3);
+        item.rotation.y = rand() * Math.PI * 2;
+        item.rotation.z = (rand() - 0.5) * 0.28;
+      }
       group.add(item);
     }
 
