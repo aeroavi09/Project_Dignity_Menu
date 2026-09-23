@@ -4,7 +4,9 @@ import * as THREE from 'three';
  * Intro bubble transition: fills the view with animated soap bubbles that rise and clear.
  * Returns a promise that resolves once all bubbles have left the frame.
  */
-export function createBubbleTransition(scene, camera) {
+export function createBubbleTransition(scene, camera, { reduceMotion = false } = {}) {
+  if (reduceMotion) return Promise.resolve();
+
   const bubbles = [];
   const bubbleCount = 150;
 
