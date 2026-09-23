@@ -121,7 +121,7 @@ export function addStaticMeshes(scene, parts) {
  * 3.6mm line whether the edge is a crease or an outline, and where two parts meet (a board
  * into a post) their edges draw the joint. All of it is merged into one mesh.
  */
-function inkBoxEdges(parts) {
+export function inkBoxEdges(parts, width = INK) {
   const bars = [];
   for (const { size, pos } of parts) {
     const half = size.map((s) => s / 2);
@@ -129,8 +129,8 @@ function inkBoxEdges(parts) {
       const [a, b] = [0, 1, 2].filter((i) => i !== axis);
       for (const sa of [-1, 1]) {
         for (const sb of [-1, 1]) {
-          const dims = [INK, INK, INK];
-          dims[axis] = size[axis] + INK; // overrun by half a pen at each end so corners close
+          const dims = [width, width, width];
+          dims[axis] = size[axis] + width; // overrun by half a pen at each end so corners close
           const bar = new THREE.BoxGeometry(...dims);
           const at = [...pos];
           at[a] += sa * half[a];
