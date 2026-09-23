@@ -7,7 +7,7 @@ export const ACHIEVEMENTS = [
     id: 'bottle-flip',
     icon: '🍾',
     title: 'Bottle Flip',
-    description: 'Threw a bottle, spun it a full turn, and stuck the landing.',
+    description: 'Threw a bottle, flipped it, and stuck the landing — upright or on its cap.',
     hint: 'Some bottles were meant to fly.',
   },
   {

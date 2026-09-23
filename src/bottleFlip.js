@@ -4,6 +4,8 @@ import * as CANNON from 'cannon-es';
 const BOTTLE_KINDS = new Set(['shampoo', 'bodyWash', 'conditioner']);
 
 const MIN_TURN = (300 * Math.PI) / 180; // a flip is ~one full rotation; allow a little short
+// A cap landing is the bottle ending upside down, which a half turn gets you (or one and a half).
+const MIN_CAP_TURN = (150 * Math.PI) / 180;
 const MIN_AIR = 0.08; // m the bottle must drop from its peak, so a roll along a shelf can't count
 const UPRIGHT_DOT = 0.94; // local +Y vs world +Y — within ~20° of standing
 const STILL_SPEED = 0.08; // m/s
@@ -14,7 +16,8 @@ const FLIGHT_TIMEOUT = 20; // s, so a bottle nudged into a corner doesn't watch 
 const UP = new CANNON.Vec3(0, 1, 0);
 
 /**
- * Watches for a thrown bottle that spins a full turn and lands upright.
+ * Watches for a thrown bottle that spins a full turn and lands upright, or at least half a
+ * turn and lands standing on its cap.
  *
  * Items are constrained to `angularFactor: (0,0,1)`, so all rotation is about Z and the
  * turn can be measured as a single unwrapped angle rather than a quaternion arc.
@@ -35,16 +38,18 @@ export function createBottleFlipWatcher({ drag, items, achievements }) {
     return item ? BOTTLE_KINDS.has(item.spec.kind) : false;
   }
 
-  function isUpright(body) {
+  /** The bottle's local +Y against world +Y: near 1 standing, near -1 on its cap. */
+  function uprightness(body) {
     body.quaternion.vmult(UP, axis);
-    return axis.y >= UPRIGHT_DOT;
+    return axis.y;
   }
 
   function land(body, flight) {
     flights.delete(body);
-    if (flight.turned < MIN_TURN) return;
     if (flight.maxY - body.position.y < MIN_AIR) return;
-    if (!isUpright(body)) return;
+    const up = uprightness(body);
+    const stuck = (up >= UPRIGHT_DOT && flight.turned >= MIN_TURN) || (up <= -UPRIGHT_DOT && flight.turned >= MIN_CAP_TURN);
+    if (!stuck) return;
     achievements.unlock('bottle-flip');
   }
 
